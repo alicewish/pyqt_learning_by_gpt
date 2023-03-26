@@ -29,15 +29,6 @@ class MainWindow(QMainWindow):
         # 添加缩放变化信号/槽连接
         self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # 创建工具箱
-        self.create_docks()
-        # 创建动作
-        self.create_actions()
-        # 创建工具栏
-        self.create_tool_bar()
-
-        # 将 QGraphicsView 设置为中心窗口部件
-        self.setCentralWidget(self.view)
         self.selected_text_item = None
         self.current_text_item = None
         self.scene.selectionChanged.connect(self.set_current_text_item)
@@ -49,6 +40,19 @@ class MainWindow(QMainWindow):
 
         self.image = QImage()
         self.pixmap_item = QGraphicsPixmapItem()
+
+        self.folder_list = QListWidget(self)
+        self.folder_list.itemClicked.connect(self.select_image_from_list)
+
+        # 创建工具箱
+        self.create_docks()
+        # 创建动作
+        self.create_actions()
+        # 创建工具栏
+        self.create_tool_bar()
+
+        # 将 QGraphicsView 设置为中心窗口部件
+        self.setCentralWidget(self.view)
 
         self.show()
 
@@ -151,10 +155,10 @@ class MainWindow(QMainWindow):
         self.image_dock.setWidget(self.image_tool)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.image_dock)
 
-        self.folder_dock = QDockWidget("文件夹工具", self)
-        self.folder_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.folder_dock.setWidget(self.folder_tool)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.folder_dock)
+        self.pics_dock = QDockWidget("图片列表", self)
+        self.pics_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.pics_dock.setWidget(self.folder_list)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pics_dock)
 
     def create_actions(self):
         # 文件菜单
@@ -186,7 +190,7 @@ class MainWindow(QMainWindow):
 
         self.view_menu.addAction(self.text_dock.toggleViewAction())
         self.view_menu.addAction(self.image_dock.toggleViewAction())
-        self.view_menu.addAction(self.folder_dock.toggleViewAction())
+        self.view_menu.addAction(self.pics_dock.toggleViewAction())
         self.view_menu.addSeparator()
 
         self.zoom_in_action = QAction("Zoom In", self)
@@ -305,6 +309,7 @@ class MainWindow(QMainWindow):
         if folder_path:
             self.image_list = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
                                f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+            self.update_folder_list()
             self.current_image_index = 0
             self.open_image_from_list()
 
@@ -340,6 +345,9 @@ class MainWindow(QMainWindow):
         if file_name:
             pixmap = QPixmap(file_name)
             self.open_image_basic(pixmap)
+            self.image_list = [file_name]
+            self.update_folder_list()
+            self.current_image_index = 0
 
             # 清空文本项列表
             self.text_items_list.clear()
@@ -348,6 +356,18 @@ class MainWindow(QMainWindow):
         if self.image_list and 0 <= self.current_image_index < len(self.image_list):
             pixmap = QPixmap(self.image_list[self.current_image_index])
             self.open_image_basic(pixmap)
+
+    def update_folder_list(self):
+        self.folder_list.clear()
+        for image_file in self.image_list:
+            item = QListWidgetItem(os.path.basename(image_file))
+            self.folder_list.addItem(item)
+
+    def select_image_from_list(self, item):
+        index = self.folder_list.row(item)
+        if index != self.current_image_index:
+            self.current_image_index = index
+            self.open_image_from_list()
 
     def save_image(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.xpm *.jpg)")
