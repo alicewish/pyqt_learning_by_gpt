@@ -1,12 +1,12 @@
 import os
 import sys
 
-from PyQt6.QtCore import QPointF, Qt, QSize
-from PyQt6.QtGui import QAction, QFont, QImage, QKeySequence, QPainter, QPixmap, QTextCursor, \
-    QTransform, QIntValidator
-from PyQt6.QtWidgets import QApplication, QDockWidget, QFontComboBox, QHBoxLayout, \
-    QLabel, QListWidget, QMainWindow, QPushButton, QSpinBox, QVBoxLayout, QWidget, QFileDialog, QGraphicsScene, \
-    QGraphicsView, QGraphicsTextItem, QColorDialog, QListWidgetItem, QToolBar, QLineEdit, QGraphicsPixmapItem
+from PyQt6.QtCore import QPointF, QSize, Qt
+from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
+    QTextCursor
+from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, \
+    QGraphicsView, QGraphicsPixmapItem, QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, \
+    QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem
 from qtawesome import icon
 
 
@@ -111,7 +111,6 @@ class MainWindow(QMainWindow):
 
         self.text_tool = QWidget()
         self.text_tool.setLayout(self.vb_text_tool)
-
 
     def create_docks(self):
         self.create_text_tool()
@@ -257,8 +256,8 @@ class MainWindow(QMainWindow):
         # 添加缩放百分比输入框
         self.scale_percentage_edit = QLineEdit(self)
         self.scale_percentage_edit.setFixedWidth(60)
-        self.scale_percentage_edit.setValidator(QIntValidator(1, 500))
-        self.scale_percentage_edit.setText("100")
+        self.scale_percentage_edit.setValidator(QDoubleValidator(1, 1000, 2))
+        self.scale_percentage_edit.setText("100.00")
         self.scale_percentage_edit.editingFinished.connect(self.scale_by_percentage)
         self.tool_bar.addWidget(self.scale_percentage_edit)
         self.tool_bar.addWidget(QLabel("%"))
@@ -288,6 +287,7 @@ class MainWindow(QMainWindow):
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.update_scale_percentage()
+        self.view.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
 
     def open_image(self):
         options = QFileDialog.Option(0)
@@ -333,16 +333,20 @@ class MainWindow(QMainWindow):
     def zoom_in(self):
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         current_transform = self.view.transform()
-        current_transform.scale(1.2, 1.2)
-        self.view.setTransform(current_transform)
-        self.update_scale_percentage()
+        current_scale = current_transform.m11()
+        if current_scale * 1.2 <= 10:
+            current_transform.scale(1.2, 1.2)
+            self.view.setTransform(current_transform)
+            self.update_scale_percentage()
 
     def zoom_out(self):
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         current_transform = self.view.transform()
-        current_transform.scale(1 / 1.2, 1 / 1.2)
-        self.view.setTransform(current_transform)
-        self.update_scale_percentage()
+        current_scale = current_transform.m11()
+        if current_scale / 1.2 >= 0.01:
+            current_transform.scale(1 / 1.2, 1 / 1.2)
+            self.view.setTransform(current_transform)
+            self.update_scale_percentage()
 
     def fit_to_screen(self):
         if self.image_item:
@@ -364,11 +368,11 @@ class MainWindow(QMainWindow):
         self.update_scale_percentage()
 
     def update_scale_percentage(self):
-        current_scale = round(self.view.transform().m11() * 100)
+        current_scale = round(self.view.transform().m11() * 100, 2)
         self.scale_percentage_edit.setText(str(current_scale))
 
     def scale_by_percentage(self):
-        scale_percentage = int(self.scale_percentage_edit.text())
+        scale_percentage = float(self.scale_percentage_edit.text())
         target_scale = scale_percentage / 100
         current_scale = self.view.transform().m11()
 
