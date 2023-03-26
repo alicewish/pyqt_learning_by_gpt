@@ -4,9 +4,10 @@ import sys
 from PyQt6.QtCore import QPointF, QSize, Qt
 from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
     QTextCursor
-from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, \
-    QGraphicsView, QGraphicsPixmapItem, QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, \
-    QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem
+from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, \
+    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, \
+    QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider
+from loguru import logger
 from qtawesome import icon
 
 
@@ -49,6 +50,8 @@ class MainWindow(QMainWindow):
         self.image = QImage()
         self.pixmap_item = QGraphicsPixmapItem()
 
+        self.show()
+
     def create_text_tool(self):
         # 创建字体选择器
         font_label = QLabel("字体:")
@@ -80,7 +83,13 @@ class MainWindow(QMainWindow):
         self.y_spinbox.valueChanged.connect(self.update_text_item_position)
 
         self.text_items_list = QListWidget(self)
-        self.text_items_list.currentItemChanged.connect(self.text_item_selected)
+        self.text_items_list.itemClicked.connect(self.text_item_selected)
+
+        # 在 create_text_tool 方法中添加透明度滑块
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.opacity_slider.setRange(0, 255)
+        self.opacity_slider.setValue(255)
+        self.opacity_slider.valueChanged.connect(self.update_text_item_opacity)
 
         hb_font_name = QHBoxLayout()
         hb_font_name.addWidget(font_label)
@@ -106,6 +115,9 @@ class MainWindow(QMainWindow):
         self.vb_text_tool.addLayout(hb_font_color)
         self.vb_text_tool.addLayout(hb_text_position)
 
+        self.vb_text_tool.addWidget(QLabel("透明度:"))
+        self.vb_text_tool.addWidget(self.opacity_slider)
+
         self.vb_text_tool.addWidget(QLabel("文本项:"))
         self.vb_text_tool.addWidget(self.text_items_list)
 
@@ -117,6 +129,8 @@ class MainWindow(QMainWindow):
 
         self.image_tool = QWidget()
         self.image_tool.setMinimumWidth(200)
+        self.layer_tool = QWidget()
+        self.layer_tool.setMinimumWidth(200)
         self.folder_tool = QWidget()
         self.folder_tool.setMinimumWidth(200)
 
@@ -125,6 +139,12 @@ class MainWindow(QMainWindow):
         self.text_dock.setWidget(self.text_tool)
         self.text_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.text_dock)
+
+        self.layer_dock = QDockWidget("图层工具", self)
+        self.layer_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.layer_dock.setWidget(self.layer_tool)
+        self.layer_dock.setMinimumWidth(200)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
 
         self.image_dock = QDockWidget("图片工具", self)
         self.image_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -216,8 +236,26 @@ class MainWindow(QMainWindow):
         self.delete_text_action.triggered.connect(self.delete_text)
         self.edit_menu.addAction(self.delete_text_action)
 
+        self.clear_all_text_action = QAction("Clear All Text", self)
+        self.clear_all_text_action.setIcon(icon('mdi6.delete-sweep-outline'))
+        self.clear_all_text_action.setShortcut(QKeySequence("Ctrl+Shift+D"))
+        self.clear_all_text_action.triggered.connect(self.clear_all_text)
+        self.edit_menu.addAction(self.clear_all_text_action)
+
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setIcon(icon('fa5s.undo'))
+        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_action.triggered.connect(self.undo)
+        self.edit_menu.addAction(self.undo_action)
+
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setIcon(icon('fa5s.redo'))
+        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self.redo_action.triggered.connect(self.redo)
+        self.edit_menu.addAction(self.redo_action)
+
         # 导航菜单
-        self.nav_menu = self.menuBar().addMenu("Edit")
+        self.nav_menu = self.menuBar().addMenu("Navigate")
 
         # 添加上一张图片操作
         self.prev_image_action = QAction("Previous Image", self)
@@ -274,6 +312,12 @@ class MainWindow(QMainWindow):
         if self.image_item:
             self.scene.removeItem(self.image_item)  # 移除之前的图片项
 
+            # 清除之前的所有文本框
+            for i in range(self.text_items_list.count()):
+                item = self.text_items_list.item(i)
+                text_item = item.data(Qt.ItemDataRole.UserRole)
+                self.scene.removeItem(text_item)
+
         self.image_item = self.scene.addPixmap(pixmap)
         self.view.setSceneRect(pixmap.rect().toRectF())
         self.view.setScene(self.scene)
@@ -286,7 +330,6 @@ class MainWindow(QMainWindow):
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.update_scale_percentage()
         self.view.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
 
     def open_image(self):
@@ -297,6 +340,9 @@ class MainWindow(QMainWindow):
         if file_name:
             pixmap = QPixmap(file_name)
             self.open_image_basic(pixmap)
+
+            # 清空文本项列表
+            self.text_items_list.clear()
 
     def open_image_from_list(self):
         if self.image_list and 0 <= self.current_image_index < len(self.image_list):
@@ -424,7 +470,8 @@ class MainWindow(QMainWindow):
         cursor = QTextCursor(text_item.document())
         cursor.insertText("翻译内容")
 
-        text_item.setPos(self.view.mapToScene(self.view.rect().center()))
+        center_pos = self.view.mapToScene(self.view.viewport().rect().center())
+        text_item.setPos(center_pos)
         self.scene.addItem(text_item)
 
         list_item = QListWidgetItem(f"文本框 {self.text_items_list.count() + 1}")
@@ -436,14 +483,14 @@ class MainWindow(QMainWindow):
             # 从场景删除文本
             self.scene.removeItem(self.current_text_item)
 
-            # Find the corresponding QListWidgetItem and remove it from the list
+            # 找到对应的 QListWidgetItem 并从列表中删除
             for index in range(self.text_items_list.count()):
                 list_item = self.text_items_list.item(index)
                 if list_item.data(Qt.ItemDataRole.UserRole) == self.current_text_item:
                     self.text_items_list.takeItem(index)
                     break
 
-            # Clear the current text item and update the toolbox
+            # 清除当前文本项并更新工具箱
             self.current_text_item = None
             self.update_tool_box(None)
 
@@ -451,8 +498,10 @@ class MainWindow(QMainWindow):
         if self.current_text_item:
             pos = QPointF(self.x_spinbox.value(), self.y_spinbox.value())
             self.current_text_item.setPos(pos)
-        if self.text_items_list.currentItem():
-            self.text_items_list.currentItem().setText(self.current_text_item.toPlainText())
+            if self.text_items_list.currentItem():  # 新增判断条件
+                current_item = self.text_items_list.currentItem()
+                if current_item:
+                    current_item.setText(self.current_text_item.toPlainText())
 
     def update_text_item_font(self, font):
         if self.current_text_item:
@@ -482,14 +531,15 @@ class MainWindow(QMainWindow):
                 self.scene.removeItem(item)
         self.text_items_list.clear()
 
-    def text_item_selected(self, current, previous):
-        if current:
-            text_item = current.data(Qt.ItemDataRole.UserRole)
+    def text_item_selected(self, list_item):
+        if list_item:
+            text_item = list_item.data(Qt.ItemDataRole.UserRole)
             text_item.setSelected(True)
             self.set_current_text_item()
-        if previous:
-            text_item = previous.data(Qt.ItemDataRole.UserRole)
-            text_item.setSelected(False)
+            self.text_items_list.setCurrentItem(list_item)
+        else:
+            self.current_text_item.setSelected(False)
+            self.set_current_text_item()
 
     def update_list_item(self, text_item):
         if text_item:
@@ -501,9 +551,30 @@ class MainWindow(QMainWindow):
                     list_item.setText(text_item.toPlainText())
                     break
 
+    # 添加槽方法 update_text_item_opacity
+    def update_text_item_opacity(self, opacity):
+        if self.current_text_item:
+            color = self.current_text_item.defaultTextColor()
+            color.setAlpha(opacity)
+            self.current_text_item.setDefaultTextColor(color)
+
+    def undo(self):
+        if self.current_text_item:
+            # 撤销文本框的生成或移动
+            pass
+
+    def redo(self):
+        if self.current_text_item:
+            # 重做文本框的生成或移动
+            pass
+
+
+@logger.catch
+def main_qt():
+    window = MainWindow()
+    sys.exit(appgui.exec())
+
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    appgui = QApplication(sys.argv)
+    main_qt()
