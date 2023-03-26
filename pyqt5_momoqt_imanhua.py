@@ -4,12 +4,18 @@ import sys
 
 from PyQt6.QtCore import QPointF, QSize, Qt
 from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
-    QTextCursor
+    QTextCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, \
-    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, \
+    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QComboBox, \
     QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider
 from loguru import logger
 from qtawesome import icon
+
+
+def truncate_text(text, max_length=20):
+    if len(text) > max_length:
+        return text[:max_length // 2] + '...' + text[-max_length // 2:]
+    return text
 
 
 class MainWindow(QMainWindow):
@@ -41,9 +47,6 @@ class MainWindow(QMainWindow):
 
         self.image = QImage()
         self.pixmap_item = QGraphicsPixmapItem()
-
-        self.image_list_widget = QListWidget(self)
-        self.image_list_widget.itemClicked.connect(self.select_image_from_list)
 
         # 创建工具箱
         self.create_docks()
@@ -132,10 +135,39 @@ class MainWindow(QMainWindow):
     def create_docks(self):
         self.create_text_tool()
 
+        self.thumbnail_label = QLabel()
+        self.file_size_label = QLabel()
+
+        self.vb_property = QVBoxLayout()
+        self.vb_property.addWidget(self.file_size_label)
+        self.vb_property.addWidget(self.thumbnail_label)
+        self.vb_property.addStretch(1)
+
         self.property_tool = QWidget()
         self.property_tool.setMinimumWidth(200)
+        self.property_tool.setLayout(self.vb_property)
+
         self.layer_tool = QWidget()
         self.layer_tool.setMinimumWidth(200)
+
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("搜索图片 (支持正则表达式)")
+        self.search_bar.textChanged.connect(self.filter_image_list)
+
+        self.sort_combobox = QComboBox()
+        self.sort_combobox.addItems(["Name", "Size", "Creation Date", "Modification Date"])
+        self.sort_combobox.currentIndexChanged.connect(self.sort_image_list)
+
+        self.image_list_widget = QListWidget(self)
+        self.image_list_widget.currentItemChanged.connect(self.select_image_from_list)
+
+        self.vb_image_list = QVBoxLayout()
+        self.vb_image_list.addWidget(self.search_bar)
+        self.vb_image_list.addWidget(self.sort_combobox)
+        self.vb_image_list.addWidget(self.image_list_widget)
+
+        self.pics_widget = QWidget()
+        self.pics_widget.setLayout(self.vb_image_list)
 
         self.text_dock = QDockWidget("文本", self)
         self.text_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -154,21 +186,18 @@ class MainWindow(QMainWindow):
         self.property_dock.setWidget(self.property_tool)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.property_dock)
 
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("搜索图片 (支持正则表达式)")
-        self.search_bar.textChanged.connect(self.filter_image_list)
-
-        vb_image_list_tool = QVBoxLayout()
-        vb_image_list_tool.addWidget(self.search_bar)
-        vb_image_list_tool.addWidget(self.image_list_widget)
-
-        self.image_list_tool = QWidget()
-        self.image_list_tool.setLayout(vb_image_list_tool)
-
         self.pics_dock = QDockWidget("图片列表", self)
         self.pics_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.pics_dock.setWidget(self.image_list_tool)
+        self.pics_dock.setWidget(self.pics_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pics_dock)
+
+        # 添加底部缩略图工具栏
+        self.thumbnail_toolbar = QToolBar("缩略图工具栏", self)
+        self.thumbnail_toolbar.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail_toolbar.setIconSize(QSize(100, 100))
+        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.thumbnail_toolbar)
+        self.thumbnail_toolbar.setMovable(False)
+        self.thumbnail_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
     def create_actions(self):
         # 文件菜单
@@ -305,11 +334,60 @@ class MainWindow(QMainWindow):
     def open_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Open Folder")
         if folder_path:
-            self.image_list = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
-                               f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
-            self.update_folder_list()
+            # 初始化 image_list 为空列表
+            self.image_list = []
+            # 遍历 folder_path 文件夹下的所有文件
+            for f in os.listdir(folder_path):
+                # 检查文件是否是图片格式
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                    # 检查文件是否不是目录（即只识别文件夹内的图片，不识别子文件夹内的图片）
+                    if not os.path.isdir(os.path.join(folder_path, f)):
+                        # 将图片文件路径添加到 image_list 中
+                        self.image_list.append(os.path.join(folder_path, f))
+            self.update_image_list_widget()
             self.current_image_index = 0
             self.open_image_from_list()
+
+            pixmap = QPixmap(self.image_list[self.current_image_index])
+            self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
+            self.update_thumbnail_toolbar()
+            self.setWindowTitle(f"漫画翻译工具 - {folder_path}")
+
+    def update_image_properties(self, pixmap):
+        # 添加缩略图
+        self.thumbnail = pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio)
+        self.thumbnail_label.setPixmap(self.thumbnail)
+
+        file_size = os.path.getsize(self.image_list[self.current_image_index])
+        file_size_kb = file_size / 1024
+        width = pixmap.width()
+        height = pixmap.height()
+        self.file_size_label.setText(f"W{width}H{height}-{file_size_kb:.2f} KB")
+
+    def select_image_by_path(self, image_file):
+        self.current_image_index = self.image_list.index(image_file)
+        pixmap = QPixmap(image_file)
+        self.open_image_basic(pixmap)
+        self.image_list_widget.setCurrentRow(self.current_image_index)
+
+    def update_thumbnail_toolbar(self):
+        # 如果图片列表只有1张图就不显示缩略图工具栏
+        if len(self.image_list) == 1:
+            self.thumbnail_toolbar.clear()
+            return
+
+        self.thumbnail_toolbar.clear()
+        if len(self.image_list) >= 2:
+            start_index = max(0, self.current_image_index - 2)
+            if len(self.image_list) - start_index < 5 and len(self.image_list) >= 5:
+                start_index = len(self.image_list) - 5
+            end_index = min(len(self.image_list), start_index + 5)
+
+            for image_file in self.image_list[start_index:end_index]:
+                pixmap = QPixmap(image_file).scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio)
+                thumbnail_action = QAction(QIcon(pixmap), truncate_text(os.path.basename(image_file)), self)
+                thumbnail_action.triggered.connect(lambda: self.select_image_by_path(image_file))
+                self.thumbnail_toolbar.addAction(thumbnail_action)
 
     def open_image_basic(self, pixmap):
         if self.image_item:
@@ -333,7 +411,7 @@ class MainWindow(QMainWindow):
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.view.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
+        self.view.setBackgroundBrush(QBrush(Qt.GlobalColor.lightGray))
 
     def open_image(self):
         options = QFileDialog.Option(0)
@@ -344,35 +422,76 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(file_name)
             self.open_image_basic(pixmap)
             self.image_list = [file_name]
-            self.update_folder_list()
             self.current_image_index = 0
 
             # 清空文本项列表
             self.text_items_list.clear()
 
-            # 添加以下内容
             self.image_folder = os.path.dirname(file_name)
-            self.image_list = [f for f in os.listdir(self.image_folder) if
-                               f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-            self.current_image_index = self.image_list.index(os.path.basename(file_name))
+            self.image_list = [file_name]
+
+            self.current_image_index = self.image_list.index(file_name)
             self.update_image_list_widget()
+
+            self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
+            self.update_thumbnail_toolbar()  # 更新缩略图工具栏
+
+            self.setWindowTitle(f"漫画翻译工具 - {file_name}")
 
     def open_image_from_list(self):
         if self.image_list and 0 <= self.current_image_index < len(self.image_list):
             pixmap = QPixmap(self.image_list[self.current_image_index])
             self.open_image_basic(pixmap)
+            self.update_image_properties(pixmap)
 
-    def update_folder_list(self):
+    def update_image_list_widget(self):
         self.image_list_widget.clear()
-        for image_file in self.image_list:
-            item = QListWidgetItem(os.path.basename(image_file))
-            self.image_list_widget.addItem(item)
+        for image in self.image_list:
+            item = QListWidgetItem(os.path.basename(image))
+            item.setData(Qt.ItemDataRole.UserRole, image)
+            if os.path.exists(image):
+                self.image_list_widget.addItem(item)
 
-    def select_image_from_list(self, item):
-        index = self.image_list_widget.row(item)
+    def select_image_from_list(self, _, current_item):
+        pixmap = QPixmap(self.image_list[self.current_image_index])
+        index = self.image_list_widget.row(current_item)
         if index != self.current_image_index:
             self.current_image_index = index
-            self.open_image_from_list()
+            self.open_image_basic(pixmap)
+
+    def sort_image_list(self, index):
+        sort_key = {
+            0: lambda x: os.path.basename(x),
+            1: os.path.getsize,
+            2: os.path.getctime,
+            3: os.path.getmtime,
+        }.get(index)
+
+        self.image_list.sort(key=sort_key)
+        self.update_image_list_widget()
+        self.update_thumbnail_toolbar()
+
+    def filter_image_list(self, search_text):
+        try:
+            regex = re.compile(search_text)
+        except re.error:
+            return
+        for index in range(self.image_list_widget.count()):
+            item = self.image_list_widget.item(index)
+            if regex.search(item.text()):
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
+
+    def get_filtered_image_list(self):
+        search_text = self.search_bar.text()
+        try:
+            regex = re.compile(search_text)
+        except re.error:
+            return self.image_list
+
+        filtered_image_list = [image for image in self.image_list if regex.search(os.path.basename(image))]
+        return filtered_image_list
 
     def save_image(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.xpm *.jpg)")
@@ -388,16 +507,26 @@ class MainWindow(QMainWindow):
             image.save(file_name)
 
     def prev_image(self):
-        if self.current_image_index > 0:
-            self.current_image_index -= 1
-            pixmap = QPixmap(self.image_list[self.current_image_index])
+        filtered_image_list = self.get_filtered_image_list()
+        current_image_path = self.image_list[self.current_image_index]
+        current_filtered_image_index = filtered_image_list.index(current_image_path)
+
+        if current_filtered_image_index > 0:
+            prev_image_path = filtered_image_list[current_filtered_image_index - 1]
+            self.current_image_index = self.image_list.index(prev_image_path)
+            pixmap = QPixmap(prev_image_path)
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
 
     def next_image(self):
-        if self.current_image_index < len(self.image_list) - 1:
-            self.current_image_index += 1
-            pixmap = QPixmap(self.image_list[self.current_image_index])
+        filtered_image_list = self.get_filtered_image_list()
+        current_image_path = self.image_list[self.current_image_index]
+        current_filtered_image_index = filtered_image_list.index(current_image_path)
+
+        if current_filtered_image_index < len(filtered_image_list) - 1:
+            next_image_path = filtered_image_list[current_filtered_image_index + 1]
+            self.current_image_index = self.image_list.index(next_image_path)
+            pixmap = QPixmap(next_image_path)
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
 
@@ -582,25 +711,6 @@ class MainWindow(QMainWindow):
             color = self.current_text_item.defaultTextColor()
             color.setAlpha(opacity)
             self.current_text_item.setDefaultTextColor(color)
-
-    def filter_image_list(self, search_text):
-        try:
-            regex = re.compile(search_text)
-        except re.error:
-            return
-        for index in range(self.image_list_widget.count()):
-            item = self.image_list_widget.item(index)
-            if regex.search(item.text()):
-                item.setHidden(False)
-            else:
-                item.setHidden(True)
-
-    def update_image_list_widget(self):
-        self.image_list_widget.clear()
-        for image in self.image_list:
-            item = QListWidgetItem(image)
-            item.setData(Qt.ItemDataRole.UserRole, os.path.join(self.image_folder, image))
-            self.image_list_widget.addItem(item)
 
 
 @logger.catch
