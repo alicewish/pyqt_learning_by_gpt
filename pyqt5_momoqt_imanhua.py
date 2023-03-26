@@ -1,13 +1,15 @@
 import os
 import re
+import subprocess
 import sys
 
 from PyQt6.QtCore import QPointF, QSize, Qt
 from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
     QTextCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, \
-    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QComboBox, \
-    QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider
+    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QComboBox, QSizePolicy, \
+    QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider, \
+    QMenu
 from loguru import logger
 from qtawesome import icon
 
@@ -160,6 +162,8 @@ class MainWindow(QMainWindow):
 
         self.image_list_widget = QListWidget(self)
         self.image_list_widget.currentItemChanged.connect(self.select_image_from_list)
+        self.image_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.image_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
 
         self.vb_image_list = QVBoxLayout()
         self.vb_image_list.addWidget(self.search_bar)
@@ -191,13 +195,16 @@ class MainWindow(QMainWindow):
         self.pics_dock.setWidget(self.pics_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pics_dock)
 
-        # 添加底部缩略图工具栏
-        self.thumbnail_toolbar = QToolBar("缩略图工具栏", self)
-        self.thumbnail_toolbar.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail_dock = QDockWidget("缩略图工具栏", self)
+        self.thumbnail_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+
+        self.thumbnail_toolbar = QToolBar(self.thumbnail_dock)
         self.thumbnail_toolbar.setIconSize(QSize(100, 100))
-        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.thumbnail_toolbar)
         self.thumbnail_toolbar.setMovable(False)
         self.thumbnail_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+
+        self.thumbnail_dock.setWidget(self.thumbnail_toolbar)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.thumbnail_dock)
 
     def create_actions(self):
         # 文件菜单
@@ -383,11 +390,19 @@ class MainWindow(QMainWindow):
                 start_index = len(self.image_list) - 5
             end_index = min(len(self.image_list), start_index + 5)
 
+            spacer_left = QWidget(self)
+            spacer_left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            self.thumbnail_toolbar.addWidget(spacer_left)
+
             for image_file in self.image_list[start_index:end_index]:
                 pixmap = QPixmap(image_file).scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio)
                 thumbnail_action = QAction(QIcon(pixmap), truncate_text(os.path.basename(image_file)), self)
                 thumbnail_action.triggered.connect(lambda: self.select_image_by_path(image_file))
                 self.thumbnail_toolbar.addAction(thumbnail_action)
+
+            spacer_right = QWidget(self)
+            spacer_right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            self.thumbnail_toolbar.addWidget(spacer_right)
 
     def open_image_basic(self, pixmap):
         if self.image_item:
@@ -458,6 +473,36 @@ class MainWindow(QMainWindow):
         if index != self.current_image_index:
             self.current_image_index = index
             self.open_image_basic(pixmap)
+
+    def open_image_in_viewer(self, file_path):
+        if sys.platform == 'win32':
+            os.startfile(os.path.normpath(file_path))
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', file_path])
+        else:
+            subprocess.Popen(['xdg-open', file_path])
+
+    def open_file_in_explorer(self, file_path):
+        folder_path = os.path.dirname(file_path)
+
+        if sys.platform == 'win32':
+            subprocess.Popen(f'explorer /select,"{os.path.normpath(file_path)}"')
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', '-R', file_path])
+        else:
+            subprocess.Popen(['xdg-open', folder_path])
+
+    def show_image_list_context_menu(self, point):
+        item = self.image_list_widget.itemAt(point)
+        if item:
+            context_menu = QMenu(self)
+            open_file_action = QAction("在文件浏览器中打开", self)
+            open_file_action.triggered.connect(lambda: self.open_file_in_explorer(item.data(Qt.ItemDataRole.UserRole)))
+            open_image_action = QAction("在图像浏览器中打开", self)
+            open_image_action.triggered.connect(lambda: self.open_image_in_viewer(item.data(Qt.ItemDataRole.UserRole)))
+            context_menu.addAction(open_file_action)
+            context_menu.addAction(open_image_action)
+            context_menu.exec(self.image_list_widget.mapToGlobal(point))
 
     def sort_image_list(self, index):
         sort_key = {
