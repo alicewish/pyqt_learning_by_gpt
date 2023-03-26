@@ -1,7 +1,7 @@
 import os
 import re
-import subprocess
 import sys
+from subprocess import Popen
 
 from PyQt6.QtCore import QPointF, QSize, Qt
 from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
@@ -9,7 +9,7 @@ from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidato
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, \
     QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QComboBox, QSizePolicy, \
     QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider, \
-    QMenu
+    QMenu, QMessageBox
 from loguru import logger
 from qtawesome import icon
 
@@ -64,13 +64,13 @@ class MainWindow(QMainWindow):
 
     def create_text_tool(self):
         # 创建字体选择器
-        font_label = QLabel("字体:")
+        self.font_name_label = QLabel("字体:")
         self.font_combo = QFontComboBox(self)
         self.font_combo.setFontFilters(QFontComboBox.FontFilter.AllFonts)
         self.font_combo.currentFontChanged.connect(self.update_text_item_font)
 
         # 创建字体大小选择器
-        font_size_label = QLabel("字号:")
+        self.font_size_label = QLabel("字号:")
         self.font_size_spinbox = QSpinBox(self)
         self.font_size_spinbox.setRange(6, 100)
         self.font_size_spinbox.setValue(18)
@@ -82,6 +82,12 @@ class MainWindow(QMainWindow):
         self.color_button.clicked.connect(self.pick_color)
         self.color_picker = QColorDialog(self)
         self.color_picker.setOption(QColorDialog.ColorDialogOption.ShowAlphaChannel)
+
+        # 在 create_text_tool 方法中添加透明度滑块
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.opacity_slider.setRange(0, 255)
+        self.opacity_slider.setValue(255)
+        self.opacity_slider.valueChanged.connect(self.update_text_item_opacity)
 
         # 创建文本项的 X 和 Y 坐标选择器
         position_label = QLabel("位置:")
@@ -95,23 +101,17 @@ class MainWindow(QMainWindow):
         self.text_items_list = QListWidget(self)
         self.text_items_list.itemClicked.connect(self.text_item_selected)
 
-        # 在 create_text_tool 方法中添加透明度滑块
-        self.opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
-        self.opacity_slider.setRange(0, 255)
-        self.opacity_slider.setValue(255)
-        self.opacity_slider.valueChanged.connect(self.update_text_item_opacity)
+        hb_font_name_size = QHBoxLayout()
+        hb_font_name_size.addWidget(self.font_name_label)
+        hb_font_name_size.addWidget(self.font_combo)
+        hb_font_name_size.addWidget(self.font_size_label)
+        hb_font_name_size.addWidget(self.font_size_spinbox)
 
-        hb_font_name = QHBoxLayout()
-        hb_font_name.addWidget(font_label)
-        hb_font_name.addWidget(self.font_combo)
-
-        hb_font_size = QHBoxLayout()
-        hb_font_size.addWidget(font_size_label)
-        hb_font_size.addWidget(self.font_size_spinbox)
-
-        hb_font_color = QHBoxLayout()
-        hb_font_color.addWidget(color_label)
-        hb_font_color.addWidget(self.color_button)
+        self.hb_font_color_alpha = QHBoxLayout()
+        self.hb_font_color_alpha.addWidget(color_label)
+        self.hb_font_color_alpha.addWidget(self.color_button)
+        self.hb_font_color_alpha.addWidget(QLabel("透明度:"))
+        self.hb_font_color_alpha.addWidget(self.opacity_slider)
 
         hb_text_position = QHBoxLayout()
         hb_text_position.addWidget(position_label)
@@ -120,14 +120,9 @@ class MainWindow(QMainWindow):
 
         # 将部件添加到布局中
         self.vb_text_tool = QVBoxLayout()
-        self.vb_text_tool.addLayout(hb_font_name)
-        self.vb_text_tool.addLayout(hb_font_size)
-        self.vb_text_tool.addLayout(hb_font_color)
+        self.vb_text_tool.addLayout(hb_font_name_size)
+        self.vb_text_tool.addLayout(self.hb_font_color_alpha)
         self.vb_text_tool.addLayout(hb_text_position)
-
-        self.vb_text_tool.addWidget(QLabel("透明度:"))
-        self.vb_text_tool.addWidget(self.opacity_slider)
-
         self.vb_text_tool.addWidget(QLabel("文本项:"))
         self.vb_text_tool.addWidget(self.text_items_list)
 
@@ -161,7 +156,9 @@ class MainWindow(QMainWindow):
         self.sort_combobox.currentIndexChanged.connect(self.sort_image_list)
 
         self.image_list_widget = QListWidget(self)
-        self.image_list_widget.currentItemChanged.connect(self.select_image_from_list)
+        self.image_list_model = self.image_list_widget.model()
+        self.image_list_selection_model = self.image_list_widget.selectionModel()
+        self.image_list_widget.itemSelectionChanged.connect(self.select_image_from_list)  # 修改这一行
         self.image_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.image_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
 
@@ -196,7 +193,8 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pics_dock)
 
         self.thumbnail_dock = QDockWidget("缩略图工具栏", self)
-        self.thumbnail_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.thumbnail_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea)
 
         self.thumbnail_toolbar = QToolBar(self.thumbnail_dock)
         self.thumbnail_toolbar.setIconSize(QSize(100, 100))
@@ -204,7 +202,7 @@ class MainWindow(QMainWindow):
         self.thumbnail_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
         self.thumbnail_dock.setWidget(self.thumbnail_toolbar)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.thumbnail_dock)
+        self.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, self.thumbnail_dock)
 
     def create_actions(self):
         # 文件菜单
@@ -235,8 +233,10 @@ class MainWindow(QMainWindow):
         self.view_menu = self.menuBar().addMenu("View")
 
         self.view_menu.addAction(self.text_dock.toggleViewAction())
+        self.view_menu.addAction(self.layer_dock.toggleViewAction())
         self.view_menu.addAction(self.property_dock.toggleViewAction())
         self.view_menu.addAction(self.pics_dock.toggleViewAction())
+        self.view_menu.addAction(self.thumbnail_dock.toggleViewAction())
         self.view_menu.addSeparator()
 
         self.zoom_in_action = QAction("Zoom In", self)
@@ -351,6 +351,16 @@ class MainWindow(QMainWindow):
                     if not os.path.isdir(os.path.join(folder_path, f)):
                         # 将图片文件路径添加到 image_list 中
                         self.image_list.append(os.path.join(folder_path, f))
+
+            self.image_list = []
+            for f in os.listdir(folder_path):
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                    if not os.path.isdir(os.path.join(folder_path, f)):
+                        self.image_list.append(os.path.join(folder_path, f))
+            if not self.image_list:
+                QMessageBox.warning(self, "Warning", "No image files found in the selected folder.")
+                return
+
             self.update_image_list_widget()
             self.current_image_index = 0
             self.open_image_from_list()
@@ -467,30 +477,51 @@ class MainWindow(QMainWindow):
             if os.path.exists(image):
                 self.image_list_widget.addItem(item)
 
-    def select_image_from_list(self, _, current_item):
-        pixmap = QPixmap(self.image_list[self.current_image_index])
+    def select_image_from_list(self):
+        selected_items = self.image_list_widget.selectedItems()
+        if not selected_items:
+            return
+        current_item = selected_items[0]
         index = self.image_list_widget.row(current_item)
         if index != self.current_image_index:
             self.current_image_index = index
-            self.open_image_basic(pixmap)
+            image_file = current_item.data(Qt.ItemDataRole.UserRole)  # 从当前项目的 UserRole 数据中获取路径
+            pixmap = QPixmap(image_file)  # 使用正确的路径创建 QPixmap 对象
+            self.open_image_basic(pixmap)  # 打开图片
+            self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
+            self.update_thumbnail_toolbar()
 
     def open_image_in_viewer(self, file_path):
         if sys.platform == 'win32':
             os.startfile(os.path.normpath(file_path))
         elif sys.platform == 'darwin':
-            subprocess.Popen(['open', file_path])
+            Popen(['open', file_path])
         else:
-            subprocess.Popen(['xdg-open', file_path])
+            Popen(['xdg-open', file_path])
 
     def open_file_in_explorer(self, file_path):
         folder_path = os.path.dirname(file_path)
 
         if sys.platform == 'win32':
-            subprocess.Popen(f'explorer /select,"{os.path.normpath(file_path)}"')
+            Popen(f'explorer /select,"{os.path.normpath(file_path)}"')
         elif sys.platform == 'darwin':
-            subprocess.Popen(['open', '-R', file_path])
+            Popen(['open', '-R', file_path])
         else:
-            subprocess.Popen(['xdg-open', folder_path])
+            Popen(['xdg-open', folder_path])
+
+    def open_image_in_photoshop(self, file_path):
+        if sys.platform == 'win32':
+            photoshop_executable_path = "C:/Program Files/Adobe/Adobe Photoshop CC 2019/Photoshop.exe"  # 请根据您的Photoshop安装路径进行修改
+            Popen([photoshop_executable_path, file_path])
+        elif sys.platform == 'darwin':
+            photoshop_executable_path = "/Applications/Adobe Photoshop 2021/Adobe Photoshop 2021.app"  # 修改此行
+            Popen(['open', '-a', photoshop_executable_path, file_path])
+        else:
+            QMessageBox.warning(self, "Warning", "This feature is not supported on this platform.")
+
+    def copy_to_clipboard(self, text):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
 
     def show_image_list_context_menu(self, point):
         item = self.image_list_widget.itemAt(point)
@@ -502,6 +533,24 @@ class MainWindow(QMainWindow):
             open_image_action.triggered.connect(lambda: self.open_image_in_viewer(item.data(Qt.ItemDataRole.UserRole)))
             context_menu.addAction(open_file_action)
             context_menu.addAction(open_image_action)
+
+            # 添加一个打开方式子菜单
+            open_with_menu = context_menu.addMenu("Open with")
+            open_with_photoshop = QAction("Photoshop", self)
+            open_with_menu.addAction(open_with_photoshop)
+
+            # 添加拷贝图片路径、拷贝图片名的选项
+            copy_image_path = QAction("Copy Image Path", self)
+            copy_image_name = QAction("Copy Image Name", self)
+
+            context_menu.addAction(copy_image_path)
+            context_menu.addAction(copy_image_name)
+
+            # 连接触发器
+            open_with_photoshop.triggered.connect(
+                lambda: self.open_image_in_photoshop(item.data(Qt.ItemDataRole.UserRole)))
+            copy_image_path.triggered.connect(lambda: self.copy_to_clipboard(item.data(Qt.ItemDataRole.UserRole)))
+            copy_image_name.triggered.connect(lambda: self.copy_to_clipboard(item.text()))
             context_menu.exec(self.image_list_widget.mapToGlobal(point))
 
     def sort_image_list(self, index):
