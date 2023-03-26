@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 from PyQt6.QtCore import QPointF, QSize, Qt
@@ -41,8 +42,8 @@ class MainWindow(QMainWindow):
         self.image = QImage()
         self.pixmap_item = QGraphicsPixmapItem()
 
-        self.folder_list = QListWidget(self)
-        self.folder_list.itemClicked.connect(self.select_image_from_list)
+        self.image_list_widget = QListWidget(self)
+        self.image_list_widget.itemClicked.connect(self.select_image_from_list)
 
         # 创建工具箱
         self.create_docks()
@@ -131,33 +132,42 @@ class MainWindow(QMainWindow):
     def create_docks(self):
         self.create_text_tool()
 
-        self.image_tool = QWidget()
-        self.image_tool.setMinimumWidth(200)
+        self.property_tool = QWidget()
+        self.property_tool.setMinimumWidth(200)
         self.layer_tool = QWidget()
         self.layer_tool.setMinimumWidth(200)
-        self.folder_tool = QWidget()
-        self.folder_tool.setMinimumWidth(200)
 
-        self.text_dock = QDockWidget("文本工具", self)
+        self.text_dock = QDockWidget("文本", self)
         self.text_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.text_dock.setWidget(self.text_tool)
         self.text_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.text_dock)
 
-        self.layer_dock = QDockWidget("图层工具", self)
+        self.layer_dock = QDockWidget("图层", self)
         self.layer_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.layer_dock.setWidget(self.layer_tool)
         self.layer_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
 
-        self.image_dock = QDockWidget("图片工具", self)
-        self.image_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.image_dock.setWidget(self.image_tool)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.image_dock)
+        self.property_dock = QDockWidget("属性", self)
+        self.property_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.property_dock.setWidget(self.property_tool)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.property_dock)
+
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("搜索图片 (支持正则表达式)")
+        self.search_bar.textChanged.connect(self.filter_image_list)
+
+        vb_image_list_tool = QVBoxLayout()
+        vb_image_list_tool.addWidget(self.search_bar)
+        vb_image_list_tool.addWidget(self.image_list_widget)
+
+        self.image_list_tool = QWidget()
+        self.image_list_tool.setLayout(vb_image_list_tool)
 
         self.pics_dock = QDockWidget("图片列表", self)
         self.pics_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.pics_dock.setWidget(self.folder_list)
+        self.pics_dock.setWidget(self.image_list_tool)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pics_dock)
 
     def create_actions(self):
@@ -189,7 +199,7 @@ class MainWindow(QMainWindow):
         self.view_menu = self.menuBar().addMenu("View")
 
         self.view_menu.addAction(self.text_dock.toggleViewAction())
-        self.view_menu.addAction(self.image_dock.toggleViewAction())
+        self.view_menu.addAction(self.property_dock.toggleViewAction())
         self.view_menu.addAction(self.pics_dock.toggleViewAction())
         self.view_menu.addSeparator()
 
@@ -245,18 +255,6 @@ class MainWindow(QMainWindow):
         self.clear_all_text_action.setShortcut(QKeySequence("Ctrl+Shift+D"))
         self.clear_all_text_action.triggered.connect(self.clear_all_text)
         self.edit_menu.addAction(self.clear_all_text_action)
-
-        self.undo_action = QAction("Undo", self)
-        self.undo_action.setIcon(icon('fa5s.undo'))
-        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        self.undo_action.triggered.connect(self.undo)
-        self.edit_menu.addAction(self.undo_action)
-
-        self.redo_action = QAction("Redo", self)
-        self.redo_action.setIcon(icon('fa5s.redo'))
-        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        self.redo_action.triggered.connect(self.redo)
-        self.edit_menu.addAction(self.redo_action)
 
         # 导航菜单
         self.nav_menu = self.menuBar().addMenu("Navigate")
@@ -352,19 +350,26 @@ class MainWindow(QMainWindow):
             # 清空文本项列表
             self.text_items_list.clear()
 
+            # 添加以下内容
+            self.image_folder = os.path.dirname(file_name)
+            self.image_list = [f for f in os.listdir(self.image_folder) if
+                               f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+            self.current_image_index = self.image_list.index(os.path.basename(file_name))
+            self.update_image_list_widget()
+
     def open_image_from_list(self):
         if self.image_list and 0 <= self.current_image_index < len(self.image_list):
             pixmap = QPixmap(self.image_list[self.current_image_index])
             self.open_image_basic(pixmap)
 
     def update_folder_list(self):
-        self.folder_list.clear()
+        self.image_list_widget.clear()
         for image_file in self.image_list:
             item = QListWidgetItem(os.path.basename(image_file))
-            self.folder_list.addItem(item)
+            self.image_list_widget.addItem(item)
 
     def select_image_from_list(self, item):
-        index = self.folder_list.row(item)
+        index = self.image_list_widget.row(item)
         if index != self.current_image_index:
             self.current_image_index = index
             self.open_image_from_list()
@@ -383,18 +388,18 @@ class MainWindow(QMainWindow):
             image.save(file_name)
 
     def prev_image(self):
-        if self.image_list:
+        if self.current_image_index > 0:
             self.current_image_index -= 1
-            if self.current_image_index < 0:
-                self.current_image_index = len(self.image_list) - 1
-            self.open_image_from_list()
+            pixmap = QPixmap(self.image_list[self.current_image_index])
+            self.open_image_basic(pixmap)
+            self.image_list_widget.setCurrentRow(self.current_image_index)
 
     def next_image(self):
-        if self.image_list:
+        if self.current_image_index < len(self.image_list) - 1:
             self.current_image_index += 1
-            if self.current_image_index >= len(self.image_list):
-                self.current_image_index = 0
-            self.open_image_from_list()
+            pixmap = QPixmap(self.image_list[self.current_image_index])
+            self.open_image_basic(pixmap)
+            self.image_list_widget.setCurrentRow(self.current_image_index)
 
     def zoom_in(self):
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -578,15 +583,24 @@ class MainWindow(QMainWindow):
             color.setAlpha(opacity)
             self.current_text_item.setDefaultTextColor(color)
 
-    def undo(self):
-        if self.current_text_item:
-            # 撤销文本框的生成或移动
-            pass
+    def filter_image_list(self, search_text):
+        try:
+            regex = re.compile(search_text)
+        except re.error:
+            return
+        for index in range(self.image_list_widget.count()):
+            item = self.image_list_widget.item(index)
+            if regex.search(item.text()):
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
 
-    def redo(self):
-        if self.current_text_item:
-            # 重做文本框的生成或移动
-            pass
+    def update_image_list_widget(self):
+        self.image_list_widget.clear()
+        for image in self.image_list:
+            item = QListWidgetItem(image)
+            item.setData(Qt.ItemDataRole.UserRole, os.path.join(self.image_folder, image))
+            self.image_list_widget.addItem(item)
 
 
 @logger.catch
