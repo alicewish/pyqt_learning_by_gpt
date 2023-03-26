@@ -2,11 +2,12 @@ import os
 import sys
 
 from PyQt6.QtCore import QPointF, Qt, QSize
-from PyQt6.QtGui import QAction, QFont, QImage, QKeySequence, QPainter, QPixmap, QImageReader, QTextCursor, \
-    QTransform
+from PyQt6.QtGui import QAction, QFont, QImage, QKeySequence, QPainter, QPixmap, QTextCursor, \
+    QTransform, QIntValidator
 from PyQt6.QtWidgets import QApplication, QDockWidget, QFontComboBox, QHBoxLayout, \
     QLabel, QListWidget, QMainWindow, QPushButton, QSpinBox, QVBoxLayout, QWidget, QFileDialog, QGraphicsScene, \
-    QGraphicsView, QGraphicsTextItem, QToolBox, QColorDialog, QListWidgetItem, QToolBar
+    QGraphicsView, QGraphicsTextItem, QColorDialog, QListWidgetItem, QToolBar, QLineEdit, QGraphicsPixmapItem
+from qtawesome import icon
 
 
 class MainWindow(QMainWindow):
@@ -14,18 +15,26 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("漫画翻译工具")
-        self.resize(800, 600)
+        self.resize(1200, 800)
 
         self.image_item = None
         self.scene = QGraphicsScene(self)
-        self.view = QGraphicsView(self.scene)
+        self.view = QGraphicsView(self)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.view.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, True)
+        self.view.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontSavePainterState, True)
+        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
 
+        # 添加缩放变化信号/槽连接
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        # 创建工具箱
+        self.create_docks()
         # 创建动作
         self.create_actions()
         # 创建工具栏
         self.create_tool_bar()
-        # 创建工具箱
-        self.create_tool_box()
+
         # 将 QGraphicsView 设置为中心窗口部件
         self.setCentralWidget(self.view)
         self.selected_text_item = None
@@ -37,126 +46,10 @@ class MainWindow(QMainWindow):
         self.image_list = []
         self.current_image_index = -1
 
-    def create_actions(self):
-        # 文件菜单
-        self.file_menu = self.menuBar().addMenu("File")
+        self.image = QImage()
+        self.pixmap_item = QGraphicsPixmapItem()
 
-        # 添加打开图片操作
-        self.open_image_action = QAction("Open Image", self)
-        self.open_image_action.setShortcut(QKeySequence.StandardKey.Open)
-        self.open_image_action.triggered.connect(self.open_image)
-        self.file_menu.addAction(self.open_image_action)
-
-        # 添加打开文件夹操作
-        self.open_folder_action = QAction("Open Folder", self)
-        self.open_folder_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
-        self.open_folder_action.triggered.connect(self.open_folder)
-        self.file_menu.addAction(self.open_folder_action)
-
-        # 添加保存图片操作
-        self.save_image_action = QAction("Save Image", self)
-        self.save_image_action.setShortcut(QKeySequence.StandardKey.Save)
-        self.save_image_action.triggered.connect(self.save_image)
-        self.file_menu.addAction(self.save_image_action)
-
-        # 显示菜单
-        self.view_menu = self.menuBar().addMenu("View")
-
-        self.zoom_in_action = QAction("Zoom In", self)
-        self.zoom_in_action.setShortcut(QKeySequence.StandardKey.ZoomIn)
-        self.zoom_in_action.triggered.connect(self.zoom_in)
-        self.view_menu.addAction(self.zoom_in_action)
-
-        self.zoom_out_action = QAction("Zoom Out", self)
-        self.zoom_out_action.setShortcut(QKeySequence.StandardKey.ZoomOut)
-        self.zoom_out_action.triggered.connect(self.zoom_out)
-        self.view_menu.addAction(self.zoom_out_action)
-
-        self.reset_zoom_action = QAction("Reset Zoom", self)
-        self.reset_zoom_action.setShortcut(QKeySequence("Ctrl+0"))
-        self.reset_zoom_action.triggered.connect(self.reset_zoom)
-        self.view_menu.addAction(self.reset_zoom_action)
-
-        # 编辑菜单
-        self.edit_menu = self.menuBar().addMenu("Edit")
-
-        self.add_text_action = QAction("Add Text", self)
-        self.add_text_action.setShortcut(QKeySequence("Ctrl+T"))
-        self.add_text_action.triggered.connect(self.add_text)
-        self.edit_menu.addAction(self.add_text_action)
-
-        self.delete_text_action = QAction("Delete Text", self)
-        self.delete_text_action.setShortcut(QKeySequence("Ctrl+D"))
-        self.delete_text_action.triggered.connect(self.delete_text)
-        self.edit_menu.addAction(self.delete_text_action)
-
-        # 导航菜单
-        self.nav_menu = self.menuBar().addMenu("Edit")
-
-        # 添加上一张图片操作
-        self.prev_image_action = QAction("Previous Image", self)
-        self.prev_image_action.setShortcut(QKeySequence("Ctrl+Left"))
-        self.prev_image_action.triggered.connect(self.prev_image)
-        self.nav_menu.addAction(self.prev_image_action)
-
-        # 添加下一张图片操作
-        self.next_image_action = QAction("Next Image", self)
-        self.next_image_action.setShortcut(QKeySequence("Ctrl+Right"))
-        self.next_image_action.triggered.connect(self.next_image)
-        self.nav_menu.addAction(self.next_image_action)
-
-    def create_tool_bar(self):
-        # 添加顶部工具栏
-        self.tool_bar = QToolBar("Toolbar", self)
-        self.tool_bar.setIconSize(QSize(24, 24))
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.tool_bar)
-        self.tool_bar.setMovable(False)
-        self.tool_bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.tool_bar.addAction(self.open_image_action)
-        self.tool_bar.addAction(self.open_folder_action)
-        self.tool_bar.addAction(self.save_image_action)
-        self.tool_bar.addSeparator()
-        self.tool_bar.addAction(self.zoom_in_action)
-        self.tool_bar.addAction(self.zoom_out_action)
-        self.tool_bar.addAction(self.reset_zoom_action)
-        self.tool_bar.addSeparator()
-        self.tool_bar.addAction(self.prev_image_action)
-        self.tool_bar.addAction(self.next_image_action)
-
-    def open_folder(self):
-        folder_path = QFileDialog.getExistingDirectory(self, "Open Folder")
-        if folder_path:
-            self.image_list = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
-                               f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
-            self.current_image_index = 0
-            self.open_image_from_list()
-
-    def open_image_from_list(self):
-        if self.image_list and 0 <= self.current_image_index < len(self.image_list):
-            pixmap = QPixmap(self.image_list[self.current_image_index])
-            if self.image_item:
-                self.scene.removeItem(self.image_item)
-            self.image_item = self.scene.addPixmap(pixmap)
-            self.view.setSceneRect(pixmap.rect().toRectF())
-            self.view.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform)
-
-    def prev_image(self):
-        if self.image_list:
-            self.current_image_index -= 1
-            if self.current_image_index < 0:
-                self.current_image_index = len(self.image_list) - 1
-            self.open_image_from_list()
-
-    def next_image(self):
-        if self.image_list:
-            self.current_image_index += 1
-            if self.current_image_index >= len(self.image_list):
-                self.current_image_index = 0
-            self.open_image_from_list()
-
-    def create_tool_box(self):
-        self.tool_box = QToolBox()
-
+    def create_text_tool(self):
         # 创建字体选择器
         font_label = QLabel("字体:")
         self.font_combo = QFontComboBox(self)
@@ -189,9 +82,6 @@ class MainWindow(QMainWindow):
         self.text_items_list = QListWidget(self)
         self.text_items_list.currentItemChanged.connect(self.text_item_selected)
 
-        # 将部件添加到布局中
-        layout = QVBoxLayout()
-
         hb_font_name = QHBoxLayout()
         hb_font_name.addWidget(font_label)
         hb_font_name.addWidget(self.font_combo)
@@ -209,27 +99,287 @@ class MainWindow(QMainWindow):
         hb_text_position.addWidget(self.x_spinbox)
         hb_text_position.addWidget(self.y_spinbox)
 
-        layout.addLayout(hb_font_name)
-        layout.addLayout(hb_font_size)
-        layout.addLayout(hb_font_color)
-        layout.addLayout(hb_text_position)
+        # 将部件添加到布局中
+        self.vb_text_tool = QVBoxLayout()
+        self.vb_text_tool.addLayout(hb_font_name)
+        self.vb_text_tool.addLayout(hb_font_size)
+        self.vb_text_tool.addLayout(hb_font_color)
+        self.vb_text_tool.addLayout(hb_text_position)
 
-        layout.addWidget(QLabel("文本项:"))
-        layout.addWidget(self.text_items_list)
+        self.vb_text_tool.addWidget(QLabel("文本项:"))
+        self.vb_text_tool.addWidget(self.text_items_list)
 
-        widget = QWidget()
-        widget.setLayout(layout)
-        self.tool_box.addItem(widget, "文本工具")
+        self.text_tool = QWidget()
+        self.text_tool.setLayout(self.vb_text_tool)
 
-        # 创建右侧工具栏
-        tool_dock = QDockWidget("工具", self)
-        tool_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        tool_dock.setWidget(self.tool_box)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, tool_dock)
+
+    def create_docks(self):
+        self.create_text_tool()
+
+        self.image_tool = QWidget()
+        self.image_tool.setMinimumWidth(200)
+        self.folder_tool = QWidget()
+        self.folder_tool.setMinimumWidth(200)
+
+        self.text_dock = QDockWidget("文本工具", self)
+        self.text_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.text_dock.setWidget(self.text_tool)
+        self.text_dock.setMinimumWidth(200)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.text_dock)
+
+        self.image_dock = QDockWidget("图片工具", self)
+        self.image_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.image_dock.setWidget(self.image_tool)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.image_dock)
+
+        self.folder_dock = QDockWidget("文件夹工具", self)
+        self.folder_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.folder_dock.setWidget(self.folder_tool)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.folder_dock)
+
+    def create_actions(self):
+        # 文件菜单
+        self.file_menu = self.menuBar().addMenu("File")
+
+        # 添加打开图片操作
+        self.open_image_action = QAction("Open Image", self)
+        self.open_image_action.setIcon(icon('ei.picture'))
+        self.open_image_action.setShortcut(QKeySequence.StandardKey.Open)
+        self.open_image_action.triggered.connect(self.open_image)
+        self.file_menu.addAction(self.open_image_action)
+
+        # 添加打开文件夹操作
+        self.open_folder_action = QAction("Open Folder", self)
+        self.open_folder_action.setIcon(icon('ei.folder'))
+        self.open_folder_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        self.open_folder_action.triggered.connect(self.open_folder)
+        self.file_menu.addAction(self.open_folder_action)
+
+        # 添加保存图片操作
+        self.save_image_action = QAction("Save Image", self)
+        self.save_image_action.setIcon(icon('ri.image-edit-fill'))
+        self.save_image_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_image_action.triggered.connect(self.save_image)
+        self.file_menu.addAction(self.save_image_action)
+
+        # 显示菜单
+        self.view_menu = self.menuBar().addMenu("View")
+
+        self.view_menu.addAction(self.text_dock.toggleViewAction())
+        self.view_menu.addAction(self.image_dock.toggleViewAction())
+        self.view_menu.addAction(self.folder_dock.toggleViewAction())
+        self.view_menu.addSeparator()
+
+        self.zoom_in_action = QAction("Zoom In", self)
+        self.zoom_in_action.setIcon(icon('ei.zoom-in'))
+        self.zoom_in_action.setShortcut(QKeySequence.StandardKey.ZoomIn)
+        self.zoom_in_action.triggered.connect(self.zoom_in)
+        self.view_menu.addAction(self.zoom_in_action)
+
+        self.zoom_out_action = QAction("Zoom Out", self)
+        self.zoom_out_action.setIcon(icon('ei.zoom-out'))
+        self.zoom_out_action.setShortcut(QKeySequence.StandardKey.ZoomOut)
+        self.zoom_out_action.triggered.connect(self.zoom_out)
+        self.view_menu.addAction(self.zoom_out_action)
+
+        self.view_menu.addSeparator()
+
+        self.fit_to_screen_action = QAction("Fit to Screen", self)
+        self.fit_to_screen_action.setIcon(icon('mdi6.fit-to-screen-outline'))
+        self.fit_to_screen_action.setShortcut(QKeySequence("Ctrl+F"))
+        self.fit_to_screen_action.triggered.connect(self.fit_to_screen)
+        self.view_menu.addAction(self.fit_to_screen_action)
+
+        self.fit_to_width_action = QAction("Fit to Width", self)
+        self.fit_to_width_action.setIcon(icon('ei.text-width'))
+        self.fit_to_width_action.setShortcut(QKeySequence("Ctrl+W"))
+        self.fit_to_width_action.triggered.connect(self.fit_to_width)
+        self.view_menu.addAction(self.fit_to_width_action)
+
+        self.reset_zoom_action = QAction("Reset Zoom", self)
+        self.reset_zoom_action.setIcon(icon('mdi6.backup-restore'))
+        self.reset_zoom_action.setShortcut(QKeySequence("Ctrl+0"))
+        self.reset_zoom_action.triggered.connect(self.reset_zoom)
+        self.view_menu.addAction(self.reset_zoom_action)
+
+        # 编辑菜单
+        self.edit_menu = self.menuBar().addMenu("Edit")
+
+        self.add_text_action = QAction("Add Text", self)
+        self.add_text_action.setIcon(icon('ri.chat-new-line'))
+        self.add_text_action.setShortcut(QKeySequence("Ctrl+T"))
+        self.add_text_action.triggered.connect(self.add_text)
+        self.edit_menu.addAction(self.add_text_action)
+
+        self.delete_text_action = QAction("Delete Text", self)
+        self.delete_text_action.setIcon(icon('mdi6.delete-forever-outline'))
+        self.delete_text_action.setShortcut(QKeySequence("Ctrl+D"))
+        self.delete_text_action.triggered.connect(self.delete_text)
+        self.edit_menu.addAction(self.delete_text_action)
+
+        # 导航菜单
+        self.nav_menu = self.menuBar().addMenu("Edit")
+
+        # 添加上一张图片操作
+        self.prev_image_action = QAction("Previous Image", self)
+        self.prev_image_action.setIcon(icon('ei.arrow-left'))
+        self.prev_image_action.setShortcut(QKeySequence("Ctrl+Left"))
+        self.prev_image_action.triggered.connect(self.prev_image)
+        self.nav_menu.addAction(self.prev_image_action)
+
+        # 添加下一张图片操作
+        self.next_image_action = QAction("Next Image", self)
+        self.next_image_action.setIcon(icon('ei.arrow-right'))
+        self.next_image_action.setShortcut(QKeySequence("Ctrl+Right"))
+        self.next_image_action.triggered.connect(self.next_image)
+        self.nav_menu.addAction(self.next_image_action)
+
+    def create_tool_bar(self):
+        # 添加顶部工具栏
+        self.tool_bar = QToolBar("Toolbar", self)
+        self.tool_bar.setIconSize(QSize(24, 24))
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.tool_bar)
+        self.tool_bar.setMovable(False)
+        self.tool_bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self.tool_bar.addAction(self.open_image_action)
+        self.tool_bar.addAction(self.open_folder_action)
+        self.tool_bar.addAction(self.save_image_action)
+        self.tool_bar.addSeparator()
+        self.tool_bar.addAction(self.zoom_in_action)
+        self.tool_bar.addAction(self.zoom_out_action)
+        self.tool_bar.addAction(self.fit_to_screen_action)
+        self.tool_bar.addAction(self.fit_to_width_action)
+        self.tool_bar.addAction(self.reset_zoom_action)
+        self.tool_bar.addSeparator()
+        self.tool_bar.addAction(self.prev_image_action)
+        self.tool_bar.addAction(self.next_image_action)
+
+        # 添加缩放百分比输入框
+        self.scale_percentage_edit = QLineEdit(self)
+        self.scale_percentage_edit.setFixedWidth(60)
+        self.scale_percentage_edit.setValidator(QIntValidator(1, 500))
+        self.scale_percentage_edit.setText("100")
+        self.scale_percentage_edit.editingFinished.connect(self.scale_by_percentage)
+        self.tool_bar.addWidget(self.scale_percentage_edit)
+        self.tool_bar.addWidget(QLabel("%"))
+
+    def open_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Open Folder")
+        if folder_path:
+            self.image_list = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
+                               f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+            self.current_image_index = 0
+            self.open_image_from_list()
+
+    def open_image_basic(self, pixmap):
+        if self.image_item:
+            self.scene.removeItem(self.image_item)  # 移除之前的图片项
+
+        self.image_item = self.scene.addPixmap(pixmap)
+        self.view.setSceneRect(pixmap.rect().toRectF())
+        self.view.setScene(self.scene)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.view.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, True)
+        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        self.view.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontSavePainterState, True)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.update_scale_percentage()
+
+    def open_image(self):
+        options = QFileDialog.Option(0)
+        options |= QFileDialog.Option.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open Image", "",
+                                                   "Images (*.png *.xpm *.jpg *.bmp);;All Files (*)", options=options)
+        if file_name:
+            pixmap = QPixmap(file_name)
+            self.open_image_basic(pixmap)
+
+    def open_image_from_list(self):
+        if self.image_list and 0 <= self.current_image_index < len(self.image_list):
+            pixmap = QPixmap(self.image_list[self.current_image_index])
+            self.open_image_basic(pixmap)
+
+    def save_image(self):
+        file_name, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.xpm *.jpg)")
+
+        if file_name:
+            image = QImage(self.scene.sceneRect().size().toSize(), QImage.Format.Format_ARGB32)
+            image.fill(Qt.GlobalColor.transparent)
+
+            painter = QPainter(image)
+            self.scene.render(painter)
+            painter.end()
+
+            image.save(file_name)
+
+    def prev_image(self):
+        if self.image_list:
+            self.current_image_index -= 1
+            if self.current_image_index < 0:
+                self.current_image_index = len(self.image_list) - 1
+            self.open_image_from_list()
+
+    def next_image(self):
+        if self.image_list:
+            self.current_image_index += 1
+            if self.current_image_index >= len(self.image_list):
+                self.current_image_index = 0
+            self.open_image_from_list()
+
+    def zoom_in(self):
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        current_transform = self.view.transform()
+        current_transform.scale(1.2, 1.2)
+        self.view.setTransform(current_transform)
+        self.update_scale_percentage()
+
+    def zoom_out(self):
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        current_transform = self.view.transform()
+        current_transform.scale(1 / 1.2, 1 / 1.2)
+        self.view.setTransform(current_transform)
+        self.update_scale_percentage()
+
+    def fit_to_screen(self):
+        if self.image_item:
+            self.view.fitInView(self.image_item, Qt.AspectRatioMode.KeepAspectRatio)
+            self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            self.update_scale_percentage()
+
+    def fit_to_width(self):
+        if self.image_item:
+            view_width = self.view.viewport().width()
+            pixmap_width = self.image_item.pixmap().width()
+            scale_factor = view_width / pixmap_width
+            self.view.setTransform(QTransform().scale(scale_factor, scale_factor))
+            self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            self.update_scale_percentage()
+
+    def reset_zoom(self):
+        self.view.setTransform(QTransform())  # 使用setTransform代替resetMatrix
+        self.update_scale_percentage()
+
+    def update_scale_percentage(self):
+        current_scale = round(self.view.transform().m11() * 100)
+        self.scale_percentage_edit.setText(str(current_scale))
+
+    def scale_by_percentage(self):
+        scale_percentage = int(self.scale_percentage_edit.text())
+        target_scale = scale_percentage / 100
+        current_scale = self.view.transform().m11()
+
+        scale_factor = target_scale / current_scale
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.view.scale(scale_factor, scale_factor)
 
     def update_tool_box(self, text_item):
-        self.x_spinbox.setMaximum(self.scene.width())
-        self.y_spinbox.setMaximum(self.scene.height())
+        self.x_spinbox.setMaximum(int(self.scene.width()))
+        self.y_spinbox.setMaximum(int(self.scene.height()))
         if text_item:
             self.font_combo.setCurrentFont(text_item.font())
             self.font_size_spinbox.setValue(text_item.font().pointSize())  # 修改为 self.font_size_spinbox
@@ -257,49 +407,6 @@ class MainWindow(QMainWindow):
         else:
             self.current_text_item = None
             self.update_tool_box(None)
-
-    def open_image(self):
-        supported_formats = ['*.' + fmt.data().decode("utf-8") for fmt in QImageReader.supportedImageFormats()]
-        file_filter = f"Images ({' '.join(supported_formats)})"
-        image_path, _ = QFileDialog.getOpenFileName(self, "Open Image", filter=file_filter)
-
-        if image_path:
-            pixmap = QPixmap(image_path)
-
-            if self.image_item:
-                self.scene.removeItem(self.image_item)
-
-            self.image_item = self.scene.addPixmap(pixmap)
-            self.view.setSceneRect(pixmap.rect().toRectF())
-            self.view.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform)
-
-    def save_image(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.xpm *.jpg)")
-
-        if file_name:
-            image = QImage(self.scene.sceneRect().size().toSize(), QImage.Format.Format_ARGB32)
-            image.fill(Qt.GlobalColor.transparent)
-
-            painter = QPainter(image)
-            self.scene.render(painter)
-            painter.end()
-
-            image.save(file_name)
-
-    def zoom_in(self):
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        current_transform = self.view.transform()
-        current_transform.scale(1.2, 1.2)
-        self.view.setTransform(current_transform)
-
-    def zoom_out(self):
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        current_transform = self.view.transform()
-        current_transform.scale(1 / 1.2, 1 / 1.2)
-        self.view.setTransform(current_transform)
-
-    def reset_zoom(self):
-        self.view.setTransform(QTransform())  # 使用setTransform代替resetMatrix
 
     def add_text(self):
         text_item = QGraphicsTextItem()
