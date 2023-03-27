@@ -3,14 +3,15 @@ import re
 import sys
 from subprocess import Popen
 
-from PyQt6.QtCore import QPointF, QSize, Qt
+from PyQt6.QtCore import QPointF, QSize, Qt, QSettings
 from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
     QTextCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, \
-    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QComboBox, QSizePolicy, \
+    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QSizePolicy, \
     QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider, \
-    QMenu, QMessageBox
+    QMenu, QMessageBox, QCheckBox
 from loguru import logger
+from natsort import natsorted
 from qtawesome import icon
 
 
@@ -46,6 +47,10 @@ class MainWindow(QMainWindow):
         self.image_folder = None
         self.image_list = []
         self.current_image_index = -1
+        self.screen_scaling_factor = 1 / self.get_screen_scaling_factor()
+        self.recent_folders = []
+
+        self.settings = QSettings("YourOrganization", "YourApplication")  # 根据需要修改组织和应用名
 
         self.image = QImage()
         self.pixmap_item = QGraphicsPixmapItem()
@@ -59,6 +64,10 @@ class MainWindow(QMainWindow):
 
         # 将 QGraphicsView 设置为中心窗口部件
         self.setCentralWidget(self.view)
+
+        self.read_config()
+        self.restoreGeometry(self.settings.value("window_geometry"))
+        self.restoreState(self.settings.value("window_state"))
 
         self.show()
 
@@ -151,20 +160,31 @@ class MainWindow(QMainWindow):
         self.search_bar.setPlaceholderText("搜索图片 (支持正则表达式)")
         self.search_bar.textChanged.connect(self.filter_image_list)
 
-        self.sort_combobox = QComboBox()
-        self.sort_combobox.addItems(["Name", "Size", "Creation Date", "Modification Date"])
-        self.sort_combobox.currentIndexChanged.connect(self.sort_image_list)
-
         self.image_list_widget = QListWidget(self)
         self.image_list_model = self.image_list_widget.model()
         self.image_list_selection_model = self.image_list_widget.selectionModel()
-        self.image_list_widget.itemSelectionChanged.connect(self.select_image_from_list)  # 修改这一行
+        self.image_list_widget.itemSelectionChanged.connect(self.select_image_from_list)
         self.image_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.image_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
 
+        # 添加复选框
+        self.case_sensitive_checkbox = QCheckBox("Case Sensitive")
+        self.whole_word_checkbox = QCheckBox("Whole Word")
+        self.regex_checkbox = QCheckBox("Use Regex")
+
+        # 连接复选框信号
+        self.case_sensitive_checkbox.stateChanged.connect(self.refresh_search_results)
+        self.whole_word_checkbox.stateChanged.connect(self.refresh_search_results)
+        self.regex_checkbox.stateChanged.connect(self.refresh_search_results)
+
+        self.hb_options = QHBoxLayout()
+        self.hb_options.addWidget(self.case_sensitive_checkbox)
+        self.hb_options.addWidget(self.whole_word_checkbox)
+        self.hb_options.addWidget(self.regex_checkbox)
+
         self.vb_image_list = QVBoxLayout()
+        self.vb_image_list.addLayout(self.hb_options)
         self.vb_image_list.addWidget(self.search_bar)
-        self.vb_image_list.addWidget(self.sort_combobox)
         self.vb_image_list.addWidget(self.image_list_widget)
 
         self.pics_widget = QWidget()
@@ -256,13 +276,15 @@ class MainWindow(QMainWindow):
         self.fit_to_screen_action = QAction("Fit to Screen", self)
         self.fit_to_screen_action.setIcon(icon('mdi6.fit-to-screen-outline'))
         self.fit_to_screen_action.setShortcut(QKeySequence("Ctrl+F"))
-        self.fit_to_screen_action.triggered.connect(self.fit_to_screen)
+        self.fit_to_screen_action.setCheckable(True)  # 添加这一行
+        self.fit_to_screen_action.toggled.connect(self.fit_to_screen_toggled)  # 修改这一行
         self.view_menu.addAction(self.fit_to_screen_action)
 
         self.fit_to_width_action = QAction("Fit to Width", self)
-        self.fit_to_width_action.setIcon(icon('ei.text-width'))
+        self.fit_to_width_action.setIcon(icon('ei.resize-horizontal'))
         self.fit_to_width_action.setShortcut(QKeySequence("Ctrl+W"))
-        self.fit_to_width_action.triggered.connect(self.fit_to_width)
+        self.fit_to_width_action.setCheckable(True)  # 添加这一行
+        self.fit_to_width_action.toggled.connect(self.fit_to_width_toggled)  # 修改这一行
         self.view_menu.addAction(self.fit_to_width_action)
 
         self.reset_zoom_action = QAction("Reset Zoom", self)
@@ -309,6 +331,10 @@ class MainWindow(QMainWindow):
         self.next_image_action.triggered.connect(self.next_image)
         self.nav_menu.addAction(self.next_image_action)
 
+        # 添加最近打开文件夹菜单项
+        self.recent_folders_menu = self.file_menu.addMenu("Recent Folders")
+        self.update_recent_folders_menu()
+
     def create_tool_bar(self):
         # 添加顶部工具栏
         self.tool_bar = QToolBar("Toolbar", self)
@@ -338,25 +364,24 @@ class MainWindow(QMainWindow):
         self.tool_bar.addWidget(self.scale_percentage_edit)
         self.tool_bar.addWidget(QLabel("%"))
 
-    def open_folder(self):
-        folder_path = QFileDialog.getExistingDirectory(self, "Open Folder")
-        if folder_path:
-            # 初始化 image_list 为空列表
-            self.image_list = []
-            # 遍历 folder_path 文件夹下的所有文件
-            for f in os.listdir(folder_path):
-                # 检查文件是否是图片格式
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-                    # 检查文件是否不是目录（即只识别文件夹内的图片，不识别子文件夹内的图片）
-                    if not os.path.isdir(os.path.join(folder_path, f)):
-                        # 将图片文件路径添加到 image_list 中
-                        self.image_list.append(os.path.join(folder_path, f))
+    def update_image_list(self):
+        # 初始化 image_list 为空列表
+        self.image_list = []
 
-            self.image_list = []
-            for f in os.listdir(folder_path):
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-                    if not os.path.isdir(os.path.join(folder_path, f)):
-                        self.image_list.append(os.path.join(folder_path, f))
+        # 遍历 self.image_folder 文件夹下的所有文件
+        for f in os.listdir(self.image_folder):
+            # 检查文件是否是图片格式
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                # 检查文件是否不是目录（即只识别文件夹内的图片，不识别子文件夹内的图片）
+                if not os.path.isdir(os.path.join(self.image_folder, f)):
+                    # 将图片文件路径添加到 image_list 中
+                    self.image_list.append(os.path.join(self.image_folder, f))
+
+    def open_folder(self):
+        self.image_folder = QFileDialog.getExistingDirectory(self, "Open Folder")
+        if self.image_folder:
+            self.update_image_list()
+
             if not self.image_list:
                 QMessageBox.warning(self, "Warning", "No image files found in the selected folder.")
                 return
@@ -364,11 +389,11 @@ class MainWindow(QMainWindow):
             self.update_image_list_widget()
             self.current_image_index = 0
             self.open_image_from_list()
-
             pixmap = QPixmap(self.image_list[self.current_image_index])
             self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
             self.update_thumbnail_toolbar()
-            self.setWindowTitle(f"漫画翻译工具 - {folder_path}")
+            self.setWindowTitle(f"漫画翻译工具 - {self.image_folder}")
+            self.add_recent_folder(self.image_folder)  # 在 open_folder 方法中
 
     def update_image_properties(self, pixmap):
         # 添加缩略图
@@ -437,6 +462,14 @@ class MainWindow(QMainWindow):
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setBackgroundBrush(QBrush(Qt.GlobalColor.lightGray))
+        # 在设置 QGraphicsView 属性之后添加以下行
+        self.view.setTransform(QTransform().scale(self.screen_scaling_factor, self.screen_scaling_factor))
+        self.update_scale_percentage()
+
+        if self.fit_to_screen_action.isChecked():
+            self.fit_to_screen()
+        elif self.fit_to_width_action.isChecked():
+            self.fit_to_width()
 
     def open_image(self):
         options = QFileDialog.Option(0)
@@ -462,8 +495,16 @@ class MainWindow(QMainWindow):
             self.update_thumbnail_toolbar()  # 更新缩略图工具栏
 
             self.setWindowTitle(f"漫画翻译工具 - {file_name}")
+            self.add_recent_folder(self.image_folder)  # 在 open_image 方法中
 
     def open_image_from_list(self):
+        while self.image_list and 0 <= self.current_image_index < len(self.image_list):
+            if not os.path.exists(self.image_list[self.current_image_index]):
+                self.image_list.pop(self.current_image_index)
+                self.update_image_list_widget()
+                continue
+            break
+
         if self.image_list and 0 <= self.current_image_index < len(self.image_list):
             pixmap = QPixmap(self.image_list[self.current_image_index])
             self.open_image_basic(pixmap)
@@ -471,6 +512,10 @@ class MainWindow(QMainWindow):
 
     def update_image_list_widget(self):
         self.image_list_widget.clear()
+
+        # 对 image_list 进行自然排序
+        self.image_list = natsorted(self.image_list)
+
         for image in self.image_list:
             item = QListWidgetItem(os.path.basename(image))
             item.setData(Qt.ItemDataRole.UserRole, image)
@@ -553,26 +598,46 @@ class MainWindow(QMainWindow):
             copy_image_name.triggered.connect(lambda: self.copy_to_clipboard(item.text()))
             context_menu.exec(self.image_list_widget.mapToGlobal(point))
 
-    def sort_image_list(self, index):
-        sort_key = {
-            0: lambda x: os.path.basename(x),
-            1: os.path.getsize,
-            2: os.path.getctime,
-            3: os.path.getmtime,
-        }.get(index)
-
-        self.image_list.sort(key=sort_key)
-        self.update_image_list_widget()
-        self.update_thumbnail_toolbar()
+    def refresh_search_results(self):
+        search_text = self.search_bar.text()
+        self.filter_image_list(search_text)
 
     def filter_image_list(self, search_text):
-        try:
-            regex = re.compile(search_text)
-        except re.error:
-            return
+        case_sensitive = self.case_sensitive_checkbox.isChecked()
+        whole_word = self.whole_word_checkbox.isChecked()
+        use_regex = self.regex_checkbox.isChecked()
+
+        flags = re.IGNORECASE if not case_sensitive else 0
+
+        if use_regex:
+            if whole_word:
+                search_text = f"\\b{search_text}\\b"
+
+            try:
+                regex = re.compile(search_text, flags)
+            except re.error:
+                return
+        else:
+            if not case_sensitive:
+                search_text = search_text.lower()
+
         for index in range(self.image_list_widget.count()):
             item = self.image_list_widget.item(index)
-            if regex.search(item.text()):
+            item_text = item.text()
+
+            if not use_regex and not case_sensitive:
+                item_text = item_text.lower()
+
+            if use_regex:
+                match = regex.search(item_text)
+            else:
+                match = search_text in item_text
+
+            if whole_word and not use_regex:
+                words = item_text.split()
+                match = search_text in words
+
+            if match:
                 item.setHidden(False)
             else:
                 item.setHidden(True)
@@ -611,6 +676,7 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(prev_image_path)
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
+            self.update_thumbnail_toolbar()
 
     def next_image(self):
         filtered_image_list = self.get_filtered_image_list()
@@ -623,6 +689,47 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(next_image_path)
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
+            self.update_thumbnail_toolbar()
+
+    def update_recent_folders_menu(self):
+        self.recent_folders_menu.clear()
+        recent_folders = self.settings.value("recent_folders", [])
+
+        for folder in recent_folders:
+            action = QAction(folder, self)
+            action.triggered.connect(lambda checked, p=folder: self.open_folder_by_path(p))
+            self.recent_folders_menu.addAction(action)
+
+    def add_recent_folder(self, folder_path):
+        recent_folders = self.settings.value("recent_folders", [])
+        if folder_path in recent_folders:
+            recent_folders.remove(folder_path)
+        recent_folders.insert(0, folder_path)
+        recent_folders = recent_folders[:10]  # 保留最多10个最近文件夹
+
+        self.settings.setValue("recent_folders", recent_folders)
+        self.update_recent_folders_menu()
+
+    def open_folder_by_path(self, folder_path):
+        if os.path.exists(folder_path):
+            self.image_folder = folder_path
+            self.update_image_list()
+            self.update_image_list_widget()
+            self.setWindowTitle(f"漫画翻译工具 - {folder_path}")
+
+            if not self.image_list:
+                QMessageBox.warning(self, "Warning", "No image files found in the selected folder.")
+            else:
+                self.current_image_index = 0
+                self.open_image_from_list()
+                self.image_list_widget.setCurrentRow(self.current_image_index)
+
+    def get_screen_scaling_factor(self):
+        screen = QApplication.primaryScreen()
+        if sys.platform == 'darwin':  # 如果是 MacOS 系统
+            return screen.devicePixelRatio()
+        else:
+            return 1
 
     def zoom_in(self):
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -642,6 +749,16 @@ class MainWindow(QMainWindow):
             self.view.setTransform(current_transform)
             self.update_scale_percentage()
 
+    def fit_to_screen_toggled(self, checked):
+        if checked:
+            self.fit_to_width_action.setChecked(False)
+        self.fit_to_screen()
+
+    def fit_to_width_toggled(self, checked):
+        if checked:
+            self.fit_to_screen_action.setChecked(False)
+        self.fit_to_width()
+
     def fit_to_screen(self):
         if self.image_item:
             self.view.fitInView(self.image_item, Qt.AspectRatioMode.KeepAspectRatio)
@@ -658,7 +775,9 @@ class MainWindow(QMainWindow):
             self.update_scale_percentage()
 
     def reset_zoom(self):
-        self.view.setTransform(QTransform())  # 使用setTransform代替resetMatrix
+        scaling_factor = self.get_screen_scaling_factor()
+        # 使用 setTransform 代替 resetMatrix 并应用缩放因子
+        self.view.setTransform(QTransform().scale(1 / scaling_factor, 1 / scaling_factor))
         self.update_scale_percentage()
 
     def update_scale_percentage(self):
@@ -805,6 +924,20 @@ class MainWindow(QMainWindow):
             color = self.current_text_item.defaultTextColor()
             color.setAlpha(opacity)
             self.current_text_item.setDefaultTextColor(color)
+
+    def read_config(self):
+        last_opened_folder = self.settings.value("last_opened_folder", "")
+        if last_opened_folder and os.path.exists(last_opened_folder) and os.path.isdir(last_opened_folder):
+            self.open_folder_by_path(last_opened_folder)
+
+    def closeEvent(self, event):
+        if self.image_folder:
+            self.settings.setValue("last_opened_folder", self.image_folder)
+        else:
+            self.settings.setValue("last_opened_folder", "")
+        self.settings.setValue("window_geometry", self.saveGeometry())
+        self.settings.setValue("window_state", self.saveState())
+        event.accept()
 
 
 @logger.catch
