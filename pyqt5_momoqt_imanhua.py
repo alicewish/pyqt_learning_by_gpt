@@ -1,17 +1,18 @@
-from subprocess import Popen
-from PyQt6.QtCore import QPointF, QSettings, QSize, Qt
-from PyQt6.QtGui import QAction, QBrush, QDoubleValidator, QFont, QIcon, QImage, QKeySequence, QPainter, QPixmap, \
-    QTextCursor, QTransform
-from PyQt6.QtWidgets import QApplication, QCheckBox, QColorDialog, QDockWidget, QFileDialog, QFontComboBox, \
-    QGraphicsPixmapItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QLineEdit, QListWidget, \
-    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSlider, QSpinBox, QToolBar, \
-    QVBoxLayout, QWidget
-from loguru import logger
-from natsort import natsorted
-from qtawesome import icon
 import os
 import re
 import sys
+from subprocess import Popen
+
+from PyQt6.QtCore import QPointF, QSettings, QSize, Qt
+from PyQt6.QtGui import QAction, QBrush, QDoubleValidator, QFont, QIcon, QImage, QKeySequence, QPainter, QPixmap, \
+    QTextCursor, QTransform
+from PyQt6.QtWidgets import QApplication, QColorDialog, QDockWidget, QFileDialog, QFontComboBox, \
+    QGraphicsPixmapItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QLineEdit, QListWidget, \
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSlider, QSpinBox, QToolBar, \
+    QVBoxLayout, QWidget, QToolButton
+from loguru import logger
+from natsort import natsorted
+from qtawesome import icon
 
 
 def truncate_text(text, max_length=20):
@@ -166,28 +167,50 @@ class MainWindow(QMainWindow):
         self.image_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.image_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
 
-        # 添加复选框
-        self.case_sensitive_checkbox = QCheckBox("Case Sensitive")
-        self.whole_word_checkbox = QCheckBox("Whole Word")
-        self.regex_checkbox = QCheckBox("Use Regex")
+        # 添加按钮
+        self.case_sensitive_button = QToolButton()
+        self.case_sensitive_button.setIcon(icon('msc.case-sensitive'))
+        self.case_sensitive_button.setCheckable(True)
+        self.case_sensitive_button.setText("Case Sensitive")
+        self.case_sensitive_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
 
-        # 连接复选框信号
-        self.case_sensitive_checkbox.stateChanged.connect(self.refresh_search_results)
-        self.whole_word_checkbox.stateChanged.connect(self.refresh_search_results)
-        self.regex_checkbox.stateChanged.connect(self.refresh_search_results)
+        self.whole_word_button = QToolButton()
+        self.whole_word_button.setIcon(icon('msc.whole-word'))
+        self.whole_word_button.setCheckable(True)
+        self.whole_word_button.setText("Whole Word")
+        self.whole_word_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
 
-        self.hb_options = QHBoxLayout()
-        self.hb_options.addWidget(self.case_sensitive_checkbox)
-        self.hb_options.addWidget(self.whole_word_checkbox)
-        self.hb_options.addWidget(self.regex_checkbox)
+        self.regex_button = QToolButton()
+        self.regex_button.setIcon(icon('mdi.regex'))
+        self.regex_button.setCheckable(True)
+        self.regex_button.setText("Use Regex")
+        self.regex_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+
+        # 连接按钮信号
+        self.case_sensitive_button.clicked.connect(self.refresh_search_results)
+        self.whole_word_button.clicked.connect(self.refresh_search_results)
+        self.regex_button.clicked.connect(self.refresh_search_results)
+
+        # 将按钮放在 QLineEdit 的右侧
+        self.hb_search_bar = QHBoxLayout()
+        self.hb_search_bar.setContentsMargins(0, 0, 0, 0)
+        self.hb_search_bar.addStretch()
+        self.hb_search_bar.addWidget(self.case_sensitive_button)
+        self.hb_search_bar.addWidget(self.whole_word_button)
+        self.hb_search_bar.addWidget(self.regex_button)
+        self.search_bar.setLayout(self.hb_search_bar)
 
         self.vb_image_list = QVBoxLayout()
-        self.vb_image_list.addLayout(self.hb_options)
         self.vb_image_list.addWidget(self.search_bar)
         self.vb_image_list.addWidget(self.image_list_widget)
 
         self.pics_widget = QWidget()
         self.pics_widget.setLayout(self.vb_image_list)
+
+        self.thumbnail_toolbar = QToolBar()
+        self.thumbnail_toolbar.setIconSize(QSize(100, 100))
+        self.thumbnail_toolbar.setMovable(False)
+        self.thumbnail_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
         self.text_dock = QDockWidget("文本", self)
         self.text_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -209,19 +232,13 @@ class MainWindow(QMainWindow):
         self.pics_dock = QDockWidget("图片列表", self)
         self.pics_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.pics_dock.setWidget(self.pics_widget)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pics_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.pics_dock)
 
         self.thumbnail_dock = QDockWidget("缩略图工具栏", self)
         self.thumbnail_dock.setAllowedAreas(
-            Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea)
-
-        self.thumbnail_toolbar = QToolBar(self.thumbnail_dock)
-        self.thumbnail_toolbar.setIconSize(QSize(100, 100))
-        self.thumbnail_toolbar.setMovable(False)
-        self.thumbnail_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.thumbnail_dock.setWidget(self.thumbnail_toolbar)
-        self.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, self.thumbnail_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.thumbnail_dock)
 
     def create_actions(self):
         # 文件菜单
@@ -602,39 +619,33 @@ class MainWindow(QMainWindow):
         self.filter_image_list(search_text)
 
     def filter_image_list(self, search_text):
-        case_sensitive = self.case_sensitive_checkbox.isChecked()
-        whole_word = self.whole_word_checkbox.isChecked()
-        use_regex = self.regex_checkbox.isChecked()
+        case_sensitive = self.case_sensitive_button.isChecked()
+        whole_word = self.whole_word_button.isChecked()
+        use_regex = self.regex_button.isChecked()
 
         flags = re.IGNORECASE if not case_sensitive else 0
 
         if use_regex:
             if whole_word:
-                search_text = f"\\b{search_text}\\b"
+                search_text = fr"\b{search_text}\b"
 
             try:
                 regex = re.compile(search_text, flags)
             except re.error:
                 return
         else:
-            if not case_sensitive:
-                search_text = search_text.lower()
+            if whole_word:
+                search_text = fr"\b{re.escape(search_text)}\b"
+            else:
+                search_text = re.escape(search_text)
+
+            regex = re.compile(search_text, flags)
 
         for index in range(self.image_list_widget.count()):
             item = self.image_list_widget.item(index)
             item_text = item.text()
 
-            if not use_regex and not case_sensitive:
-                item_text = item_text.lower()
-
-            if use_regex:
-                match = regex.search(item_text)
-            else:
-                match = search_text in item_text
-
-            if whole_word and not use_regex:
-                words = item_text.split()
-                match = search_text in words
+            match = regex.search(item_text)
 
             if match:
                 item.setHidden(False)

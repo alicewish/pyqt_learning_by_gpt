@@ -1,10 +1,13 @@
-import simpleaudio as sa
-import numpy as np
 import sys
+
+import numpy as np
+import simpleaudio as sa
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QColor, QFont, QAction
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QMenu, QMenuBar,QScrollArea,QLabel
+from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QMenu, QMenuBar, QScrollArea, QLabel
+from loguru import logger
 from music21 import pitch
+
 
 class Piano(QMainWindow):
     def __init__(self):
@@ -22,6 +25,7 @@ class Piano(QMainWindow):
 
         self.create_piano_keys()
         self.create_menu_bar()
+        self.show()
 
     def create_piano_keys(self):
         # 添加白键
@@ -106,10 +110,9 @@ class Piano(QMainWindow):
         self.sheet_music_label.setText("<br>".join(self.recorded_notes))
         self.sheet_music_label.adjustSize()
 
-
     def open_sheet_music(self):
-        options = QFileDialog.Options()
-        options |= QFileDialog.ReadOnly
+        options = QFileDialog.Option(0)
+        options |= QFileDialog.Option.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Open Sheet Music", "", "Text Files (*.txt);;All Files (*)",
                                                    options=options)
         if file_name:
@@ -157,8 +160,13 @@ class Piano(QMainWindow):
         painter.setFont(QFont('Decorative', 20))
         painter.drawText(20, 50, " ".join(self.recorded_notes))
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    piano = Piano()
-    piano.show()
-    sys.exit(app.exec())
+
+@logger.catch
+def main_qt():
+    window = Piano()
+    sys.exit(appgui.exec())
+
+
+if __name__ == "__main__":
+    appgui = QApplication(sys.argv)
+    main_qt()
