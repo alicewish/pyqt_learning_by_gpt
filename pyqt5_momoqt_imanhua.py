@@ -1,18 +1,17 @@
-import os
-import re
-import sys
 from subprocess import Popen
-
-from PyQt6.QtCore import QPointF, QSize, Qt, QSettings
-from PyQt6.QtGui import QAction, QImage, QKeySequence, QPainter, QDoubleValidator, QBrush, QPixmap, QTransform, QFont, \
-    QTextCursor, QIcon
-from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, \
-    QLabel, QToolBar, QLineEdit, QDockWidget, QFontComboBox, QHBoxLayout, QSizePolicy, \
-    QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget, QGraphicsTextItem, QColorDialog, QListWidgetItem, QSlider, \
-    QMenu, QMessageBox, QCheckBox
+from PyQt6.QtCore import QPointF, QSettings, QSize, Qt
+from PyQt6.QtGui import QAction, QBrush, QDoubleValidator, QFont, QIcon, QImage, QKeySequence, QPainter, QPixmap, \
+    QTextCursor, QTransform
+from PyQt6.QtWidgets import QApplication, QCheckBox, QColorDialog, QDockWidget, QFileDialog, QFontComboBox, \
+    QGraphicsPixmapItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QLineEdit, QListWidget, \
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSlider, QSpinBox, QToolBar, \
+    QVBoxLayout, QWidget
 from loguru import logger
 from natsort import natsorted
 from qtawesome import icon
+import os
+import re
+import sys
 
 
 def truncate_text(text, max_length=20):
