@@ -4,21 +4,15 @@ import sys
 from subprocess import Popen
 
 from PyQt6.QtCore import QPointF, QSettings, QSize, Qt
-from PyQt6.QtGui import QAction, QBrush, QDoubleValidator, QFont, QIcon, QImage, QKeySequence, QPainter, QPixmap, \
-    QTextCursor, QTransform
+from PyQt6.QtGui import QAction, QBrush, QDoubleValidator, QFont, QImage, QKeySequence, QPainter, QPixmap, \
+    QTextCursor, QTransform, QIcon
 from PyQt6.QtWidgets import QApplication, QColorDialog, QDockWidget, QFileDialog, QFontComboBox, \
     QGraphicsPixmapItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QLineEdit, QListWidget, \
-    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSlider, QSpinBox, QToolBar, \
-    QVBoxLayout, QWidget, QToolButton
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider, QSpinBox, QToolBar, \
+    QVBoxLayout, QWidget, QToolButton, QListView, QTabWidget, QAbstractItemView, QStatusBar
 from loguru import logger
 from natsort import natsorted
 from qtawesome import icon
-
-
-def truncate_text(text, max_length=20):
-    if len(text) > max_length:
-        return text[:max_length // 2] + '...' + text[-max_length // 2:]
-    return text
 
 
 class MainWindow(QMainWindow):
@@ -50,7 +44,7 @@ class MainWindow(QMainWindow):
         self.screen_scaling_factor = 1 / self.get_screen_scaling_factor()
         self.recent_folders = []
 
-        self.settings = QSettings("YourOrganization", "YourApplication")  # 根据需要修改组织和应用名
+        self.settings = QSettings("YourOrganization", "Momohanhua")  # 根据需要修改组织和应用名
 
         self.image = QImage()
         self.pixmap_item = QGraphicsPixmapItem()
@@ -61,13 +55,15 @@ class MainWindow(QMainWindow):
         self.create_actions()
         # 创建工具栏
         self.create_tool_bar()
+        # 创建状态栏
+        self.create_status_bar()
 
         # 将 QGraphicsView 设置为中心窗口部件
         self.setCentralWidget(self.view)
 
         self.read_config()
-        self.restoreGeometry(self.settings.value("window_geometry"))
-        self.restoreState(self.settings.value("window_state"))
+        # self.restoreGeometry(self.settings.value("window_geometry"))
+        # self.restoreState(self.settings.value("window_state"))
 
         self.show()
 
@@ -141,18 +137,6 @@ class MainWindow(QMainWindow):
     def create_docks(self):
         self.create_text_tool()
 
-        self.thumbnail_label = QLabel()
-        self.file_size_label = QLabel()
-
-        self.vb_property = QVBoxLayout()
-        self.vb_property.addWidget(self.file_size_label)
-        self.vb_property.addWidget(self.thumbnail_label)
-        self.vb_property.addStretch(1)
-
-        self.property_tool = QWidget()
-        self.property_tool.setMinimumWidth(200)
-        self.property_tool.setLayout(self.vb_property)
-
         self.layer_tool = QWidget()
         self.layer_tool.setMinimumWidth(200)
 
@@ -166,6 +150,21 @@ class MainWindow(QMainWindow):
         self.image_list_widget.itemSelectionChanged.connect(self.select_image_from_list)
         self.image_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.image_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
+
+        self.tab_widget = QTabWidget()
+        self.thumbnail_list_widget = QListWidget(self)
+        self.thumbnail_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.thumbnail_list_widget.setViewMode(QListView.ViewMode.IconMode)
+        self.thumbnail_list_widget.setFlow(QListView.Flow.TopToBottom)
+        self.thumbnail_list_widget.setWrapping(False)
+        self.thumbnail_list_widget.setResizeMode(QListView.ResizeMode.Adjust)
+        self.thumbnail_list_widget.setWordWrap(True)
+        self.thumbnail_list_widget.setIconSize(QSize(100, 100))
+        self.thumbnail_list_widget.setSpacing(10)
+        self.thumbnail_list_widget.itemClicked.connect(self.select_image_from_list)
+
+        self.tab_widget.addTab(self.image_list_widget, "图片名列表")
+        self.tab_widget.addTab(self.thumbnail_list_widget, "图片缩略图列表")
 
         # 添加按钮
         self.case_sensitive_button = QToolButton()
@@ -202,15 +201,10 @@ class MainWindow(QMainWindow):
 
         self.vb_image_list = QVBoxLayout()
         self.vb_image_list.addWidget(self.search_bar)
-        self.vb_image_list.addWidget(self.image_list_widget)
+        self.vb_image_list.addWidget(self.tab_widget)
 
         self.pics_widget = QWidget()
         self.pics_widget.setLayout(self.vb_image_list)
-
-        self.thumbnail_toolbar = QToolBar()
-        self.thumbnail_toolbar.setIconSize(QSize(100, 100))
-        self.thumbnail_toolbar.setMovable(False)
-        self.thumbnail_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
         self.text_dock = QDockWidget("文本", self)
         self.text_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -224,21 +218,10 @@ class MainWindow(QMainWindow):
         self.layer_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock)
 
-        self.property_dock = QDockWidget("属性", self)
-        self.property_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.property_dock.setWidget(self.property_tool)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.property_dock)
-
         self.pics_dock = QDockWidget("图片列表", self)
         self.pics_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.pics_dock.setWidget(self.pics_widget)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.pics_dock)
-
-        self.thumbnail_dock = QDockWidget("缩略图工具栏", self)
-        self.thumbnail_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.thumbnail_dock.setWidget(self.thumbnail_toolbar)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.thumbnail_dock)
 
     def create_actions(self):
         # 文件菜单
@@ -270,9 +253,7 @@ class MainWindow(QMainWindow):
 
         self.view_menu.addAction(self.text_dock.toggleViewAction())
         self.view_menu.addAction(self.layer_dock.toggleViewAction())
-        self.view_menu.addAction(self.property_dock.toggleViewAction())
         self.view_menu.addAction(self.pics_dock.toggleViewAction())
-        self.view_menu.addAction(self.thumbnail_dock.toggleViewAction())
         self.view_menu.addSeparator()
 
         self.zoom_in_action = QAction("Zoom In", self)
@@ -380,6 +361,12 @@ class MainWindow(QMainWindow):
         self.tool_bar.addWidget(self.scale_percentage_edit)
         self.tool_bar.addWidget(QLabel("%"))
 
+    def create_status_bar(self):
+        # ================状态栏================
+        self.status_bar = QStatusBar()
+        # 设置状态栏，类似布局设置
+        self.setStatusBar(self.status_bar)
+
     def update_image_list(self):
         # 初始化 image_list 为空列表
         self.image_list = []
@@ -406,54 +393,14 @@ class MainWindow(QMainWindow):
             self.current_image_index = 0
             self.open_image_from_list()
             pixmap = QPixmap(self.image_list[self.current_image_index])
-            self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
-            self.update_thumbnail_toolbar()
             self.setWindowTitle(f"漫画翻译工具 - {self.image_folder}")
             self.add_recent_folder(self.image_folder)  # 在 open_folder 方法中
-
-    def update_image_properties(self, pixmap):
-        # 添加缩略图
-        self.thumbnail = pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio)
-        self.thumbnail_label.setPixmap(self.thumbnail)
-
-        file_size = os.path.getsize(self.image_list[self.current_image_index])
-        file_size_kb = file_size / 1024
-        width = pixmap.width()
-        height = pixmap.height()
-        self.file_size_label.setText(f"W{width}H{height}-{file_size_kb:.2f} KB")
 
     def select_image_by_path(self, image_file):
         self.current_image_index = self.image_list.index(image_file)
         pixmap = QPixmap(image_file)
         self.open_image_basic(pixmap)
         self.image_list_widget.setCurrentRow(self.current_image_index)
-
-    def update_thumbnail_toolbar(self):
-        # 如果图片列表只有1张图就不显示缩略图工具栏
-        if len(self.image_list) == 1:
-            self.thumbnail_toolbar.clear()
-            return
-
-        self.thumbnail_toolbar.clear()
-        if len(self.image_list) >= 2:
-            start_index = max(0, self.current_image_index - 2)
-            if len(self.image_list) - start_index < 5 and len(self.image_list) >= 5:
-                start_index = len(self.image_list) - 5
-            end_index = min(len(self.image_list), start_index + 5)
-
-            spacer_left = QWidget(self)
-            spacer_left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            self.thumbnail_toolbar.addWidget(spacer_left)
-
-            for image_file in self.image_list[start_index:end_index]:
-                pixmap = QPixmap(image_file).scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio)
-                thumbnail_action = QAction(QIcon(pixmap), truncate_text(os.path.basename(image_file)), self)
-                thumbnail_action.triggered.connect(lambda: self.select_image_by_path(image_file))
-                self.thumbnail_toolbar.addAction(thumbnail_action)
-
-            spacer_right = QWidget(self)
-            spacer_right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            self.thumbnail_toolbar.addWidget(spacer_right)
 
     def open_image_basic(self, pixmap):
         if self.image_item:
@@ -481,6 +428,8 @@ class MainWindow(QMainWindow):
         # 在设置 QGraphicsView 属性之后添加以下行
         self.view.setTransform(QTransform().scale(self.screen_scaling_factor, self.screen_scaling_factor))
         self.update_scale_percentage()
+        self.thumbnail_list_widget.setCurrentRow(self.current_image_index)
+        self.update_status_bar_info()
 
         if self.fit_to_screen_action.isChecked():
             self.fit_to_screen()
@@ -507,9 +456,6 @@ class MainWindow(QMainWindow):
             self.current_image_index = self.image_list.index(file_name)
             self.update_image_list_widget()
 
-            self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
-            self.update_thumbnail_toolbar()  # 更新缩略图工具栏
-
             self.setWindowTitle(f"漫画翻译工具 - {file_name}")
             self.add_recent_folder(self.image_folder)  # 在 open_image 方法中
 
@@ -524,7 +470,6 @@ class MainWindow(QMainWindow):
         if self.image_list and 0 <= self.current_image_index < len(self.image_list):
             pixmap = QPixmap(self.image_list[self.current_image_index])
             self.open_image_basic(pixmap)
-            self.update_image_properties(pixmap)
 
     def update_image_list_widget(self):
         self.image_list_widget.clear()
@@ -535,22 +480,47 @@ class MainWindow(QMainWindow):
         for image in self.image_list:
             item = QListWidgetItem(os.path.basename(image))
             item.setData(Qt.ItemDataRole.UserRole, image)
+
+            thumbnail_item = QListWidgetItem(os.path.basename(image))
+            thumbnail_item.setIcon(QIcon(image))
+            thumbnail_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+            thumbnail_item.setData(Qt.ItemDataRole.UserRole, image)
+
             if os.path.exists(image):
                 self.image_list_widget.addItem(item)
+                self.thumbnail_list_widget.addItem(thumbnail_item)
+
+        self.update_status_bar_info()
+
+    def update_status_bar_info(self):
+        total_images = len(self.image_list)
+        if total_images > 0:
+            current_image_index = self.current_image_index + 1
+            image_path = self.image_list[self.current_image_index]
+            image_size = QPixmap(image_path).size()
+            image_file_size = os.path.getsize(image_path)
+            status_text = f"{current_image_index}/{total_images} | 地址: {image_path} | 长度: {image_size.width()} 宽度: {image_size.height()} | 文件大小: {image_file_size} bytes"
+        else:
+            status_text = "No images found in the selected folder."
+
+        self.status_bar.showMessage(status_text)
 
     def select_image_from_list(self):
-        selected_items = self.image_list_widget.selectedItems()
+        active_list_widget = self.tab_widget.currentWidget()
+        selected_items = active_list_widget.selectedItems()
         if not selected_items:
             return
         current_item = selected_items[0]
-        index = self.image_list_widget.row(current_item)
+        index = active_list_widget.row(current_item)
+
         if index != self.current_image_index:
             self.current_image_index = index
             image_file = current_item.data(Qt.ItemDataRole.UserRole)  # 从当前项目的 UserRole 数据中获取路径
             pixmap = QPixmap(image_file)  # 使用正确的路径创建 QPixmap 对象
             self.open_image_basic(pixmap)  # 打开图片
-            self.update_image_properties(pixmap)  # 更新属性工具中的图片信息
-            self.update_thumbnail_toolbar()
+
+        self.image_list_widget.setCurrentRow(self.current_image_index)
+        self.thumbnail_list_widget.setCurrentRow(self.current_image_index)
 
     def open_image_in_viewer(self, file_path):
         if sys.platform == 'win32':
@@ -644,9 +614,16 @@ class MainWindow(QMainWindow):
         for index in range(self.image_list_widget.count()):
             item = self.image_list_widget.item(index)
             item_text = item.text()
-
             match = regex.search(item_text)
+            if match:
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
 
+        for index in range(self.thumbnail_list_widget.count()):
+            item = self.thumbnail_list_widget.item(index)
+            item_text = item.text()
+            match = regex.search(item_text)
             if match:
                 item.setHidden(False)
             else:
@@ -686,7 +663,6 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(prev_image_path)
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
-            self.update_thumbnail_toolbar()
 
     def next_image(self):
         filtered_image_list = self.get_filtered_image_list()
@@ -699,7 +675,6 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(next_image_path)
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
-            self.update_thumbnail_toolbar()
 
     def update_recent_folders_menu(self):
         self.recent_folders_menu.clear()
