@@ -62,8 +62,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.view)
 
         self.read_config()
-        # self.restoreGeometry(self.settings.value("window_geometry"))
-        # self.restoreState(self.settings.value("window_state"))
+        self.restoreGeometry(self.settings.value("window_geometry"))
+        self.restoreState(self.settings.value("window_state"))
 
         self.show()
 
@@ -144,15 +144,18 @@ class MainWindow(QMainWindow):
         self.search_bar.setPlaceholderText("搜索图片 (支持正则表达式)")
         self.search_bar.textChanged.connect(self.filter_image_list)
 
+        self.tab_widget = QTabWidget()
+
+
         self.image_list_widget = QListWidget(self)
-        self.image_list_model = self.image_list_widget.model()
-        self.image_list_selection_model = self.image_list_widget.selectionModel()
-        self.image_list_widget.itemSelectionChanged.connect(self.select_image_from_list)
         self.image_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.image_list_widget.itemSelectionChanged.connect(self.select_image_from_list)
         self.image_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
 
-        self.tab_widget = QTabWidget()
         self.thumbnail_list_widget = QListWidget(self)
+        self.thumbnail_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.thumbnail_list_widget.itemSelectionChanged.connect(self.select_image_from_list)
+        self.thumbnail_list_widget.customContextMenuRequested.connect(self.show_image_list_context_menu)
         self.thumbnail_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.thumbnail_list_widget.setViewMode(QListView.ViewMode.IconMode)
         self.thumbnail_list_widget.setFlow(QListView.Flow.TopToBottom)
@@ -652,8 +655,12 @@ class MainWindow(QMainWindow):
 
             image.save(file_name)
 
-    def prev_image(self):
+    @logger.catch
+    def prev_image(self,aa):
         filtered_image_list = self.get_filtered_image_list()
+        if not filtered_image_list:
+            return  # 如果列表为空，则不进行任何操作
+
         current_image_path = self.image_list[self.current_image_index]
         current_filtered_image_index = filtered_image_list.index(current_image_path)
 
@@ -664,8 +671,12 @@ class MainWindow(QMainWindow):
             self.open_image_basic(pixmap)
             self.image_list_widget.setCurrentRow(self.current_image_index)
 
-    def next_image(self):
+    @logger.catch
+    def next_image(self,aa):
         filtered_image_list = self.get_filtered_image_list()
+        if not filtered_image_list:
+            return  # 如果列表为空，则不进行任何操作
+
         current_image_path = self.image_list[self.current_image_index]
         current_filtered_image_index = filtered_image_list.index(current_image_path)
 
@@ -760,6 +771,8 @@ class MainWindow(QMainWindow):
             self.update_scale_percentage()
 
     def reset_zoom(self):
+        self.fit_to_width_action.setChecked(False)
+        self.fit_to_screen_action.setChecked(False)
         scaling_factor = self.get_screen_scaling_factor()
         # 使用 setTransform 代替 resetMatrix 并应用缩放因子
         self.view.setTransform(QTransform().scale(1 / scaling_factor, 1 / scaling_factor))

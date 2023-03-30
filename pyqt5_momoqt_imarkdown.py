@@ -1,12 +1,14 @@
+from markdown.extensions.codehilite import CodeHiliteExtension
+from pygments.formatters import HtmlFormatter
 import re
 import sys
 
 from PyQt6.QtCore import QUrl, Qt
-from PyQt6.QtGui import QFont, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QFont, QTextCharFormat, QTextCursor,QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPlainTextEdit, QSplitter, \
-    QTextEdit, QToolBar, QVBoxLayout, QWidget, QDockWidget, QInputDialog, QTreeWidget, QMenu, QTreeWidgetItem
+    QTextEdit, QToolBar, QVBoxLayout, QWidget, QDockWidget, QInputDialog, QTreeWidget, QMenu, QTreeWidgetItem,QComboBox
 from loguru import logger
 from markdown import markdown
 from mdx_gfm import GithubFlavoredMarkdownExtension
@@ -88,11 +90,29 @@ class MarkdownEditor(QMainWindow):
 
         self.splitter.setSizes([self.width() // 2, self.width() // 2])
 
+        self.view_mode_combo = QComboBox()
+        self.view_mode_combo.addItem("编辑框+预览框")
+        self.view_mode_combo.addItem("仅编辑框")
+        self.view_mode_combo.addItem("仅预览框")
+        self.view_mode_combo.currentIndexChanged.connect(self.change_view_mode)
+        self.toolbar.addWidget(self.view_mode_combo)
+
+    def change_view_mode(self, index):
+        if index == 0:
+            self.editor.show()
+            self.preview.show()
+        elif index == 1:
+            self.editor.show()
+            self.preview.hide()
+        elif index == 2:
+            self.editor.hide()
+            self.preview.show()
+
     def show_toc_context_menu(self, pos):
         menu = QMenu()
         menu.addAction("Expand All", self.toc_tree.expandAll)
         menu.addAction("Collapse All", self.toc_tree.collapseAll)
-        menu.exec_(self.toc_tree.mapToGlobal(pos))
+        menu.exec(self.toc_tree.mapToGlobal(pos))
 
     def generate_toc(self, md_text):
         lines = md_text.split("\n")
@@ -133,7 +153,7 @@ class MarkdownEditor(QMainWindow):
         md_text = self.editor.toPlainText()
         headers = self.generate_toc(md_text)
 
-        html = markdown(md_text, extensions=[GithubFlavoredMarkdownExtension()])
+        html = markdown(md_text, extensions=[GithubFlavoredMarkdownExtension(), CodeHiliteExtension()])
         preview_html = f"""
         <!DOCTYPE html>
         <html>
@@ -181,6 +201,9 @@ class MarkdownEditor(QMainWindow):
             [QTextEdit.ExtraSelection(cursor, format)])
 
     def handle_link_clicked(self, url: QUrl):
+        if not url.fragment() and url.scheme() in ["http", "https"]:
+            QDesktopServices.openUrl(url)
+            return
         if not url.fragment():
             return
         fragment = url.fragment()
